@@ -8,3 +8,6 @@ Thumbs.db
 
 # env
 .env
+
+# root-level db dump artifact (the committed copy lives in deploy/initdb/)
+/medarchive_dump.sql.gz

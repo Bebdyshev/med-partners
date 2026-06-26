@@ -1,0 +1,106 @@
+# MedArchive production stack — joins the host's existing nginx-proxy (auto-SSL).
+# API  -> https://medapi.mastereducation.kz   (Swagger at /docs)
+# Web  -> https://med.mastereducation.kz       (proxies /api/* to the api service)
+# Postgres/Redis stay internal (no published host ports -> no conflict on the shared box).
+#
+# DNS A-records "medapi" and "med" .mastereducation.kz must point at the server for SSL.
+
+name: medarchive
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: med-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medarchive
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medarchive}
+      POSTGRES_DB: medarchive
+    volumes:
+      - medpgdata:/var/lib/postgresql/data
+      # *.sql.gz here is auto-restored on FIRST init (empty volume) -> seeds the demo DB
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    networks: [mednet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medarchive"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    container_name: med-redis
+    restart: unless-stopped
+    networks: [mednet]
+
+  api:
+    build:
+      context: ../backend
+      args:
+        INSTALL_EMBEDDINGS: "true"   # full ML (e5 + cross-encoder) in the image
+    container_name: med-api
+    restart: unless-stopped
+    command: bash -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://medarchive:${POSTGRES_PASSWORD:-medarchive}@postgres:5432/medarchive
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /data/storage
+      USE_EMBEDDINGS: "true"
+      USE_RERANKER: "false"          # heavy per-request; offline-only (data already normalized)
+      VIRTUAL_HOST: medapi.mastereducation.kz
+      VIRTUAL_PORT: "8000"
+      LETSENCRYPT_HOST: medapi.mastereducation.kz
+    volumes:
+      - medstorage:/data/storage
+    networks: [mednet, proxy]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    build:
+      context: ../backend
+      args:
+        INSTALL_EMBEDDINGS: "true"
+    container_name: med-worker
+    restart: unless-stopped
+    command: celery -A app.tasks.celery_app.celery worker --loglevel=info --concurrency=2
+    environment:
+      DATABASE_URL: postgresql+psycopg2://medarchive:${POSTGRES_PASSWORD:-medarchive}@postgres:5432/medarchive
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /data/storage
+      USE_EMBEDDINGS: "true"
+      USE_RERANKER: "false"
+    volumes:
+      - medstorage:/data/storage
+    networks: [mednet]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ../frontend
+    container_name: med-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://api:8000     # server-side proxy target (internal network)
+      VIRTUAL_HOST: med.mastereducation.kz
+      VIRTUAL_PORT: "3000"
+      LETSENCRYPT_HOST: med.mastereducation.kz
+    networks: [mednet, proxy]
+    depends_on:
+      - api
+
+volumes:
+  medpgdata:
+  medstorage:
+
+networks:
+  mednet:
+  proxy:
+    external: true
