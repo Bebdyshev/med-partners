@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MedArchive — как это работает</title>
+<style>
+  :root{
+    --bg:#0e1726; --panel:#15203400; --card:#1b2940; --card2:#16223a;
+    --ink:#e8eef7; --muted:#9fb0c8; --line:#2a3a57;
+    --teal:#2dd4bf; --blue:#5b9dff; --violet:#a78bfa; --amber:#fbbf24; --green:#34d399; --red:#fb7185;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0b1322,#0e1726 40%);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1120px;margin:0 auto;padding:32px 24px 80px}
+  header.hero{padding:40px 36px;border-radius:20px;background:
+    radial-gradient(1200px 300px at 10% -20%,rgba(45,212,191,.20),transparent),
+    radial-gradient(900px 300px at 90% -10%,rgba(91,157,255,.18),transparent),#10192b;
+    border:1px solid var(--line)}
+  .hero h1{margin:0 0 6px;font-size:34px;letter-spacing:.3px}
+  .hero p{margin:4px 0;color:var(--muted);max-width:760px}
+  .pill{display:inline-block;font-size:12px;color:#062;background:var(--teal);
+    padding:3px 10px;border-radius:999px;font-weight:700;letter-spacing:.4px}
+  h2{font-size:22px;margin:46px 0 14px;display:flex;align-items:center;gap:10px}
+  h2 .n{font-size:13px;color:#06231f;background:var(--teal);width:26px;height:26px;border-radius:8px;
+    display:inline-flex;align-items:center;justify-content:center;font-weight:800}
+  .lead{color:var(--muted);margin:-6px 0 18px}
+  .grid{display:grid;gap:14px}
+  .cols-2{grid-template-columns:1fr 1fr}
+  .cols-3{grid-template-columns:1fr 1fr 1fr}
+  .cols-4{grid-template-columns:repeat(4,1fr)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .card h3{margin:0 0 6px;font-size:15px}
+  .card p{margin:0;color:var(--muted);font-size:13.5px}
+  .muted{color:var(--muted)}
+  /* pipeline */
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:0}
+  .step{flex:1;min-width:150px;background:var(--card2);border:1px solid var(--line);
+    border-radius:14px;padding:14px;position:relative;margin:6px}
+  .step .ico{font-size:20px}
+  .step h4{margin:6px 0 4px;font-size:14px;color:var(--teal)}
+  .step small{color:var(--muted);font-size:12.5px;line-height:1.4;display:block}
+  .arrow{align-self:center;color:var(--line);font-size:22px;font-weight:700;padding:0 2px}
+  /* stat */
+  .stat{background:linear-gradient(180deg,#1a2740,#16223a);}
+  .stat .big{font-size:30px;font-weight:800;color:#fff}
+  .stat .lbl{color:var(--muted);font-size:12.5px}
+  .bar{height:10px;border-radius:6px;background:#22304b;overflow:hidden;display:flex;margin-top:6px}
+  .bar i{display:block;height:100%}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;overflow:hidden;border-radius:12px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:#172238;color:#cdd9ec;font-weight:600}
+  tr:last-child td{border-bottom:none}
+  code{background:#0e1830;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:12.5px;color:#bfe9e1}
+  .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .b-done{background:rgba(52,211,153,.16);color:#6ee7b7;border:1px solid rgba(52,211,153,.4)}
+  .b-part{background:rgba(251,191,36,.14);color:#fcd34d;border:1px solid rgba(251,191,36,.4)}
+  .b-todo{background:rgba(148,163,184,.14);color:#cbd5e1;border:1px solid rgba(148,163,184,.35)}
+  .entity{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .entity h4{margin:0 0 6px;color:var(--blue);font-size:14px}
+  .entity ul{margin:0;padding-left:16px;color:var(--muted);font-size:12.5px;line-height:1.5}
+  .rel{color:var(--muted);font-size:12.5px;text-align:center;margin:8px 0}
+  .tag{display:inline-block;font-size:11.5px;color:#cfe;background:#11304a;border:1px solid #1d4a63;border-radius:6px;padding:1px 7px;margin:2px 2px 0 0}
+  .note{border-left:3px solid var(--amber);background:rgba(251,191,36,.07);padding:10px 14px;border-radius:0 10px 10px 0;color:#e9d9b0;font-size:13px}
+  .ok{color:var(--green)} .warn{color:var(--amber)} .bad{color:var(--red)}
+  footer{margin-top:50px;color:var(--muted);font-size:12.5px;text-align:center}
+  @media(max-width:780px){.cols-2,.cols-3,.cols-4{grid-template-columns:1fr 1fr}.hero h1{font-size:26px}}
+  @media print{body{background:#fff;color:#111}.card,.step,.entity,th{background:#f4f6fb!important}h2 .n,.pill{print-color-adjust:exact}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <span class="pill">ХАКАТОН · КЕЙС 2</span>
+    <h1>MedArchive — автоматическая обработка прайсов клиник</h1>
+    <p>Система принимает архив прайс-листов клиник-партнёров в разных форматах, извлекает услуги и цены,
+       приводит их к единому справочнику услуг, проверяет, версионирует и отдаёт через REST API:
+       <b>«кто оказывает услугу и по какой цене»</b>.</p>
+    <p class="muted">Стек: Python · FastAPI · PostgreSQL · Celery/Redis · pdfplumber · Tesseract OCR · RapidFuzz + sentence-transformers</p>
+  </header>
+
+  <!-- 1. ЗАЧЕМ -->
+  <h2><span class="n">1</span>Проблема и цель</h2>
+  <p class="lead">У партнёров прайсы в PDF, сканах, Word и Excel — разной структуры, с шапками-«шапками», тарифами резидент/нерезидент и опечатками. Вручную свести это в единую базу невозможно.</p>
+  <div class="grid cols-3">
+    <div class="card"><h3>📥 Вход</h3><p>ZIP-архив: PDF (текст и скан), DOCX (с правками), XLSX, XLS. Один файл = прайс одной клиники на дату.</p></div>
+    <div class="card"><h3>⚙️ Что делаем</h3><p>Извлекаем → нормализуем к справочнику → проверяем → версионируем историю цен.</p></div>
+    <div class="card"><h3>📤 Выход</h3><p>Единая БД + REST API/Swagger: поиск услуги, список клиник с ценами, очередь ручной разметки.</p></div>
+  </div>
+
+  <!-- 2. PIPELINE -->
+  <h2><span class="n">2</span>Как данные проходят через систему (пайплайн)</h2>
+  <p class="lead">Каждый файл проходит конвейер. Один «плохой» документ не ломает остальные — ошибки пишутся в лог документа.</p>
+  <div class="flow">
+    <div class="step"><div class="ico">📦</div><h4>1. Загрузка</h4><small>ZIP/файл → сохраняем оригинал (никогда не удаляем), считаем хэш (дедуп), определяем формат, ставим в очередь.</small></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="ico">🔍</div><h4>2. Извлечение</h4><small>Плагин под формат. PDF: сначала текстовый слой, при плохом — OCR. Достаём название, код, цены.</small></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="ico">🏷️</div><h4>3. Тарифы</h4><small>Колонки цен → тарифы: без НДС / резидент РК / СНГ / дальнее зарубежье. Валюта → KZT.</small></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="ico">🧠</div><h4>4. Нормализация</h4><small>Сопоставление с справочником: точное + нечёткое (RapidFuzz) + смысловое (эмбеддинги).</small></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="ico">✅</div><h4>5. Валидация</h4><small>8 проверок: цена&gt;0, нерезидент≥резидент, дубли, аномалия &gt;50%, дата и т.д.</small></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="ico">🕓</div><h4>6. Версии</h4><small>Новый прайс архивирует старую цену (archive-on-change). История хранится бессрочно.</small></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="ico">🔌</div><h4>7. API</h4><small>Поиск, услуги, партнёры, очередь /unmatched, ручной матч /match. OpenAPI/Swagger.</small></div>
+  </div>
+
+  <!-- 3. ФОРМАТЫ -->
+  <h2><span class="n">3</span>Извлечение по форматам <span style="font-size:13px" class="muted">(самое сложное — 30% оценки)</span></h2>
+  <div class="grid cols-2">
+    <div class="card"><h3>📄 PDF — адаптивно</h3><p>Все 6 примеров — <b>сканы</b> с текстовым слоем разного качества. Логика: пробуем текстовый слой (таблицы → позиции слов → построчный парсер); если страница нечитаема — <b>рендерим и распознаём Tesseract (rus+kaz+eng)</b>. Решение принимается <b>по каждой странице</b>, с лимитом OCR на документ.</p></div>
+    <div class="card"><h3>📝 DOCX — с правками</h3><p>Читаем XML напрямую: <b>принимаем tracked changes</b> (вставки оставляем, удаления отбрасываем). Достаём таблицы, секции «Раздел N» → категории.</p></div>
+    <div class="card"><h3>📊 XLSX / XLS</h3><p>Обходим все листы. <b>Ищем строку-шапку</b> (она спрятана под 8–17 строками «шапки-бланка» с «Утверждаю»). Объединённые ячейки, многострочные заголовки, строки-категории.</p></div>
+    <div class="card"><h3>🧩 Плагин-архитектура</h3><p>Один интерфейс <code>BaseExtractor</code> + реестр. Новый формат = один новый файл, <b>ядро не меняется</b> (требование масштабируемости ТЗ).</p></div>
+  </div>
+  <div class="note" style="margin-top:14px">💡 Хитрые случаи из реальных данных: цены вида «14 400» (пробел-разделитель), 4 колонки цен вместо 2, шапка «для граждан РК» без слова «цена» (определяем колонку <b>по числовому содержимому</b>), бесшапочные нумерованные списки с ценами в конце строки.</div>
+
+  <!-- 4. МОДЕЛЬ ДАННЫХ -->
+  <h2><span class="n">4</span>Модель данных</h2>
+  <p class="lead">Ключевое отличие от ТЗ: цены вынесены в отдельную сущность <b>PriceTier</b> — потому что в реальных файлах до 4 тарифов, а не фиксированные «резидент/нерезидент».</p>
+  <div class="grid cols-4">
+    <div class="entity"><h4>Partner — клиника</h4><ul><li>code, display_name</li><li>legal_name (из шапки)</li><li>city, bin, контакты</li><li>is_active</li></ul></div>
+    <div class="entity"><h4>PriceDocument — файл</h4><ul><li>partner_id, file_name</li><li>file_format, file_hash</li><li>status, parse_log</li><li>effective_date</li></ul></div>
+    <div class="entity"><h4>PriceItem — позиция</h4><ul><li>raw_name, raw_code</li><li>service_id (нормализ.)</li><li>match_status, is_verified</li><li>is_active, superseded_by</li></ul></div>
+    <div class="entity"><h4>PriceTier — тариф</h4><ul><li>tier_type</li><li>amount_kzt</li><li>amount_original, currency</li><li>label_raw (исходн.)</li></ul></div>
+  </div>
+  <div class="rel">Partner ──&lt; PriceDocument ──&lt; PriceItem ──&lt; PriceTier &nbsp;&nbsp;•&nbsp;&nbsp; PriceItem ──&gt; Service ──&lt; ServiceSynonym &nbsp;&nbsp;•&nbsp;&nbsp; MatchDecision (аудит решений)</div>
+
+  <!-- 5. НОРМАЛИЗАЦИЯ -->
+  <h2><span class="n">5</span>Нормализация к справочнику <span style="font-size:13px" class="muted">(25% оценки)</span></h2>
+  <p class="lead">Загружаем справочник организаторов (<code>Справочник услуг.xlsx</code>, ~1230 услуг). Для каждой «сырой» услуги ищем лучшую запись справочника.</p>
+  <div class="grid cols-3">
+    <div class="card"><h3>1️⃣ Нечёткий поиск</h3><p>RapidFuzz по названиям и синонимам (нормализация текста: «консультация/осмотр» → «приём», аббревиатуры).</p></div>
+    <div class="card"><h3>2️⃣ Смысловой поиск</h3><p>Эмбеддинги (multilingual) по <b>всему</b> справочнику — ловит совпадения по смыслу, когда слова разные.</p></div>
+    <div class="card"><h3>3️⃣ Решение по порогу</h3><p>≥0.85 → авто; 0.60–0.85 → очередь ревью с подсказками; ниже → unmatched. Ручной матч учится в синонимы.</p></div>
+  </div>
+  <div class="note" style="margin-top:14px">⚖️ <b>Честно про метрику:</b> ~37% авто при <b>высокой точности</b>. Снижать порог ради «70%» нельзя — ниже 0.85 совпадения в основном неверные (это испортит базу цен). ~92% позиций получают ранжированного кандидата → оператор <b>подтверждает</b>, а не ищет вручную. Рост авто-метрики = доменная модель эмбеддингов / больше синонимов, а не «подкрутка порога».</div>
+
+  <!-- 6. ВАЛИДАЦИЯ -->
+  <h2><span class="n">6</span>Валидация и верификация <span style="font-size:13px" class="muted">(20% оценки)</span></h2>
+  <div class="grid cols-2">
+    <div class="card"><h3>Автопроверки (8 правил)</h3><p>Цена &gt; 0 · Нерезидент ≥ резидент · Имя не пустое · Дата не в будущем · Дубликат (клиника+услуга+дата) · Изменение цены &gt;50% (аномалия) · Конвертация валют → KZT · Низкая уверенность OCR.</p></div>
+    <div class="card"><h3>Ручная верификация</h3><p>Очередь <code>/unmatched</code> с ранжированными подсказками → оператор подтверждает/исправляет/создаёт услугу через <code>/match</code>. Версионирование: старая цена не удаляется, а архивируется.</p></div>
+  </div>
+
+  <!-- 7. API -->
+  <h2><span class="n">7</span>API и поиск <span style="font-size:13px" class="muted">(15% оценки · Swagger /docs)</span></h2>
+  <table>
+    <tr><th>Метод</th><th>Эндпоинт</th><th>Назначение</th></tr>
+    <tr><td><code>GET</code></td><td>/search?q=</td><td>Полнотекстовый поиск (Postgres FTS + триграммы при опечатках)</td></tr>
+    <tr><td><code>GET</code></td><td>/services/{id}/partners</td><td><b>Кто оказывает услугу и по какой цене</b> (сорт. по цене)</td></tr>
+    <tr><td><code>GET</code></td><td>/partners/{id}/services</td><td>Полный прайс клиники по тарифам</td></tr>
+    <tr><td><code>GET</code></td><td>/services · /partners</td><td>Справочник услуг · список партнёров (фильтры)</td></tr>
+    <tr><td><code>GET</code></td><td>/unmatched</td><td>Очередь ручной разметки с подсказками</td></tr>
+    <tr><td><code>POST</code></td><td>/match</td><td>Ручное сопоставление / создание услуги (учит синоним)</td></tr>
+    <tr><td><code>POST</code></td><td>/upload</td><td>Загрузка ZIP/файла → очередь (Celery) или синхронно</td></tr>
+    <tr><td><code>GET</code></td><td>/documents · /dashboard/stats</td><td>Статус обработки · метрики</td></tr>
+  </table>
+
+  <!-- 8. МЕТРИКИ -->
+  <h2><span class="n">8</span>Результаты на реальном архиве</h2>
+  <div class="grid cols-4">
+    <div class="card stat"><div class="big">10</div><div class="lbl">документов обработано</div></div>
+    <div class="card stat"><div class="big">14 554</div><div class="lbl">позиций извлечено</div></div>
+    <div class="card stat"><div class="big">12 103</div><div class="lbl">актуальных (2 451 в архиве истории)</div></div>
+    <div class="card stat"><div class="big">1 230</div><div class="lbl">услуг в справочнике</div></div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>Нормализация (по 14 554 позициям)</h3>
+    <div class="bar" title="auto / review / unmatched">
+      <i style="width:37.5%;background:var(--green)"></i>
+      <i style="width:55.4%;background:var(--amber)"></i>
+      <i style="width:7.1%;background:var(--red)"></i>
+    </div>
+    <p style="margin-top:8px">
+      <span class="ok">■ 37.5% авто</span> &nbsp;·&nbsp;
+      <span class="warn">■ 55% в очередь ревью (есть кандидат)</span> &nbsp;·&nbsp;
+      <span class="bad">■ 7% без кандидата</span> &nbsp;·&nbsp;
+      <span class="muted">1 150 позиций помечено валидацией · 23 теста проходят</span>
+    </p>
+  </div>
+  <div class="note" style="margin-top:14px">🔗 Доказательство, что нормализация реальная, а не «сама на себя»: запрос «Гониоскопия» возвращает <b>и Клинику 1 (2024), и Клинику 7 (2026)</b> — разные написания свёрнуты в одну услугу. А архив из 2 451 позиции = версионирование цен между годами.</div>
+
+  <!-- 9. STATUS / ROADMAP -->
+  <h2><span class="n">9</span>Статус по ТЗ и дорожная карта</h2>
+  <table>
+    <tr><th>Раздел ТЗ</th><th>Статус</th><th>Комментарий</th></tr>
+    <tr><td>Извлечение всех форматов + OCR + tracked changes</td><td><span class="badge b-done">ГОТОВО</span></td><td>4/4 формата, адаптивный PDF</td></tr>
+    <tr><td>Загрузка справочника организаторов</td><td><span class="badge b-done">ГОТОВО</span></td><td>XLSX/JSON, 1230 услуг</td></tr>
+    <tr><td>Нормализация (fuzzy + эмбеддинги)</td><td><span class="badge b-done">ГОТОВО</span></td><td>точность-first, очередь ревью</td></tr>
+    <tr><td>Валидация (8 правил) + версионирование</td><td><span class="badge b-done">ГОТОВО</span></td><td>archive-on-change</td></tr>
+    <tr><td>REST API + Swagger</td><td><span class="badge b-done">ГОТОВО</span></td><td>все 8 групп эндпоинтов</td></tr>
+    <tr><td>Очередь Celery + загрузка через API</td><td><span class="badge b-done">ГОТОВО</span></td><td>проверено end-to-end</td></tr>
+    <tr><td>Метаданные партнёра (город/адрес/БИН/контакты)</td><td><span class="badge b-part">ЧАСТИЧНО</span></td><td>поля есть, извлечение — в планах</td></tr>
+    <tr><td>Постобработка OCR (deskew/denoise)</td><td><span class="badge b-part">ЧАСТИЧНО</span></td><td>сейчас лёгкая фильтрация</td></tr>
+    <tr><td>Веб-интерфейс (админка, дашборд, страницы)</td><td><span class="badge b-todo">В ПЛАНАХ</span></td><td>осознанно: пока backend + Swagger</td></tr>
+    <tr><td>Презентация / демо-видео</td><td><span class="badge b-todo">В ПЛАНАХ</span></td><td>—</td></tr>
+  </table>
+
+  <h2><span class="n">10</span>Что дальше (приоритеты)</h2>
+  <div class="grid cols-3">
+    <div class="card"><h3>① Фронтенд-админка</h3><p>Поиск → клиники с ценами, страница партнёра, загрузка/статусы, очередь верификации, дашборд. Закрывает раздел 4.6 (+10% оценки).</p></div>
+    <div class="card"><h3>② Качество нормализации</h3><p>Доменная модель эмбеддингов / расширение синонимов → выше авто-метрика без потери точности.</p></div>
+    <div class="card"><h3>③ Метаданные + OCR</h3><p>Вытаскивать город/контакты из шапок; deskew/denoise перед OCR для скан-PDF.</p></div>
+  </div>
+
+  <h2><span class="n">11</span>Технологии</h2>
+  <div class="card">
+    <span class="tag">FastAPI</span><span class="tag">PostgreSQL + FTS/pg_trgm</span><span class="tag">SQLAlchemy + Alembic</span>
+    <span class="tag">Celery + Redis</span><span class="tag">pdfplumber</span><span class="tag">PyMuPDF</span>
+    <span class="tag">Tesseract OCR (rus+kaz+eng)</span><span class="tag">python-docx</span><span class="tag">openpyxl / xlrd</span>
+    <span class="tag">RapidFuzz</span><span class="tag">sentence-transformers</span><span class="tag">Docker Compose</span><span class="tag">pytest</span>
+  </div>
+
+  <footer>MedArchive · сгенерировано для объяснения архитектуры трекеру · открой в браузере, можно «Печать → PDF» для слайдов</footer>
+</div>
+</body>
+</html>

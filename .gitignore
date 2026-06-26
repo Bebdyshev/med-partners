@@ -1,0 +1,10 @@
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+
+# Office lock files
+~$*
+
+# env
+.env
