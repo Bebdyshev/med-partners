@@ -39,6 +39,11 @@ export const api = {
   document: (id: string) => j<DocumentRow>(`/documents/${id}`),
 
   unmatched: (limit = 50) => j<Unmatched[]>(`/unmatched?limit=${limit}`),
+  bulkAccept: (minScore: number, dryRun: boolean) =>
+    j<{ eligible: number; accepted: number; min_score: number; dry_run: boolean }>(
+      `/review/bulk-accept?min_score=${minScore}&dry_run=${dryRun}`,
+      { method: "POST" }
+    ),
   match: (body: { item_id: string; service_id?: string; create_name?: string; category?: string; decided_by?: string; note?: string }) =>
     j<{ item_id: string; service_id: string; action: string }>("/match", {
       method: "POST",

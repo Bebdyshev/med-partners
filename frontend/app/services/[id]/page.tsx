@@ -1,5 +1,4 @@
 "use client";
-import { use } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api, fmtKzt } from "@/lib/api";
@@ -14,8 +13,8 @@ function residentPrice(tiers: Tier[]): Tier | undefined {
   return tiers.find((t) => t.tier_type === "resident_kzt") ?? tiers[0];
 }
 
-export default function ServiceDetail({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function ServiceDetail({ params }: { params: { id: string } }) {
+  const { id } = params;
   const name = useSearchParams().get("name") || "Услуга справочника";
   const { data, error, loading } = useFetch(() => api.servicePartners(id), [id]);
 

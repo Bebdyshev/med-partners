@@ -159,12 +159,35 @@ def _read_json(path: Path) -> list[dict]:
 
 
 def load_matcher(db) -> Matcher:
-    rows = db.execute(select(Service.id, Service.canonical_name)).all()
+    rows = db.execute(
+        select(Service.id, Service.canonical_name, Service.category, Service.icd_code)
+    ).all()
     syn_map: dict = defaultdict(list)
     for sid, syn in db.execute(select(ServiceSynonym.service_id, ServiceSynonym.synonym)).all():
         syn_map[sid].append(syn)
-    services = [(sid, name, syn_map.get(sid, [])) for sid, name in rows]
+    services = [(sid, name, syn_map.get(sid, []), category, icd) for sid, name, category, icd in rows]
     return Matcher(services)
+
+
+# Process-level cache so API requests don't rebuild/re-encode the dictionary each
+# call. Keyed by (service count, synonym count) — cheap to compute, changes when
+# the dictionary or learned synonyms change.
+_CACHE: dict = {}
+
+
+def load_matcher_cached(db) -> Matcher:
+    from sqlalchemy import func
+
+    key = (
+        db.execute(select(func.count(Service.id))).scalar(),
+        db.execute(select(func.count(ServiceSynonym.id))).scalar(),
+    )
+    if _CACHE.get("key") == key and _CACHE.get("matcher") is not None:
+        return _CACHE["matcher"]
+    m = load_matcher(db)
+    _CACHE["key"] = key
+    _CACHE["matcher"] = m
+    return m
 
 
 def seed_from_items(min_count: int = 1) -> int:

@@ -1,5 +1,5 @@
 "use client";
-import { use, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
@@ -9,8 +9,8 @@ import { PageHead, Loading, ErrorNote, StatusBadge, PriceTiers } from "@/compone
 
 export const dynamic = "force-dynamic";
 
-export default function PartnerDetail({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function PartnerDetail({ params }: { params: { id: string } }) {
+  const { id } = params;
   const name = useSearchParams().get("name") || "Прайс-лист клиники";
   const { data, error, loading } = useFetch(() => api.partnerServices(id), [id]);
   const [q, setQ] = useState("");

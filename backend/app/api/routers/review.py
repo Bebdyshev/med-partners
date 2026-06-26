@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.models import MatchDecision, PriceItem, Service, ServiceSynonym
 from app.models.enums import MatchAction, MatchMethod, MatchStatus
-from app.normalization.dictionary import load_matcher
+from app.normalization.dictionary import load_matcher_cached
 from app.schemas.dto import MatchRequest, UnmatchedOut
 
 router = APIRouter()
@@ -33,7 +33,7 @@ def unmatched(
         .offset(offset)
     )
     items = db.execute(stmt).scalars().all()
-    matcher = load_matcher(db)
+    matcher = load_matcher_cached(db)
     out = []
     for it in items:
         sugg = matcher.suggest(it.raw_name, k=5)
@@ -49,6 +49,15 @@ def unmatched(
                           "score": round(s.score, 3)} for s in sugg],
         ))
     return out
+
+
+@router.post("/review/bulk-accept")
+def bulk_accept(min_score: float = Query(0.80, ge=0, le=1), dry_run: bool = Query(False)):
+    """Accept the top suggestion for every active review item with score >= min_score.
+    Use dry_run=true first to see how many are eligible."""
+    from app.services.review_ops import bulk_accept_review
+
+    return bulk_accept_review(min_score, dry_run=dry_run, decided_by="operator/bulk")
 
 
 @router.post("/match")

@@ -78,8 +78,8 @@ def process_document(db, doc: PriceDocument) -> dict:
             )
             tier_vals.append(TierVal(tier_type=tier_type, amount_kzt=amount_kzt))
 
-        # --- normalization ---
-        match = matcher.match(raw.raw_name)
+        # --- normalization (code-first, then name) ---
+        match = matcher.match(raw.raw_name, raw.code, raw.category)
         item.match_status = match.status
         item.match_score = match.score
         if match.status == MatchStatus.auto and match.service_id:

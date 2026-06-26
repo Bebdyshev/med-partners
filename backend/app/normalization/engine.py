@@ -1,15 +1,13 @@
-"""Normalization engine: match a raw service name to a dictionary Service.
+"""Normalization engine: match a raw service line to a dictionary Service.
 
-Strategy:
-  * Without embeddings: RapidFuzz candidate generation only.
-  * With embeddings: full semantic retrieval — all dictionary entries are encoded
-    once; each query is matched by cosine against the whole dictionary (cheap at
-    ~1.2k services), so purely-semantic matches (different words, same meaning)
-    are found even when fuzzy overlap is low. The final score blends fuzzy and
-    cosine (max), so either signal can confirm a match.
+Order of signals (high precision first):
+  1. CODE — raw_code vs the dictionary tariff code (exact, name-independent).
+  2. NAME — RapidFuzz candidate gen, or (when embeddings are on) full semantic
+     retrieval over the whole dictionary, blended max(fuzzy, cosine), with a
+     same-specialty boost so the right category wins ties.
 
-Decision is threshold-driven (config): >= auto -> auto-match, >= floor -> review
-queue with ranked suggestions, else unmatched.
+Decision is threshold-driven (config): >= auto -> auto, >= floor -> review with
+ranked suggestions, else unmatched.
 """
 from __future__ import annotations
 
@@ -19,9 +17,12 @@ from rapidfuzz import fuzz
 
 from app.config import settings
 from app.models.enums import MatchMethod, MatchStatus
-from app.normalization import embeddings
+from app.normalization import embeddings, rerank
+from app.normalization.code_match import CodeIndex
 from app.normalization.fuzzy import Entry, build_entries, fuzzy_candidates
 from app.normalization.text_norm import normalize
+
+CATEGORY_BOOST = 0.08  # added to score when raw category fuzzily matches the service specialty
 
 
 @dataclass
@@ -42,51 +43,85 @@ class MatchResult:
 
 
 class Matcher:
-    """In-memory matcher built from the current dictionary snapshot."""
-
     def __init__(self, services: list[tuple]):
-        # services: list of (service_id, canonical_name, [synonyms])
+        # services: list of (id, name, [synonyms], category?, icd_code?)
         self.entries: list[Entry] = build_entries(services)
+        self.code_index = CodeIndex(
+            (rec[4], rec[0], rec[1]) for rec in services if len(rec) > 4 and rec[4]
+        )
         self._use_embeddings = embeddings.available()
         self._emb = None
         if self._use_embeddings and self.entries:
             try:
-                self._emb = embeddings.encode([e.norm or e.text for e in self.entries])
+                self._emb = embeddings.encode_passages([e.norm or e.text for e in self.entries])
             except Exception:  # noqa: BLE001
                 self._use_embeddings = False
                 self._emb = None
+        # bind reranker at build time so the decision thresholds match the scoring
+        # scale actually used (a failed reranker load must NOT leave low thresholds on
+        # bi-encoder scores).
+        self._reranker = False
+        if rerank.available():
+            try:
+                rerank._model()  # warm/verify load
+                self._reranker = True
+            except Exception:  # noqa: BLE001
+                self._reranker = False
+
+    # ---- code (tried first) ----
+    def code_lookup(self, raw_code: str | None) -> Suggestion | None:
+        hit = self.code_index.lookup(raw_code)
+        if hit is None:
+            return None
+        sid, name = hit
+        return Suggestion(sid, name, 1.0, MatchMethod.exact)
 
     # ---- single ----
-    def suggest(self, raw_name: str, k: int = 5) -> list[Suggestion]:
-        return self.suggest_many([raw_name], k=k)[0]
+    def suggest(self, raw_name: str, k: int = 5, category: str | None = None) -> list[Suggestion]:
+        return self.suggest_many([raw_name], k=k, categories=[category])[0]
 
-    def match(self, raw_name: str) -> MatchResult:
-        return self._decide(self.suggest(raw_name))
+    def match(self, raw_name: str, raw_code: str | None = None, category: str | None = None) -> MatchResult:
+        code = self.code_lookup(raw_code)
+        if code is not None:
+            return MatchResult(MatchStatus.auto, 1.0, MatchMethod.exact, code.service_id, [code])
+        return self._decide(self.suggest(raw_name, category=category))
 
-    # ---- batch (used by renormalize over many items) ----
-    def suggest_many(self, raw_names: list[str], k: int = 5) -> list[list[Suggestion]]:
+    # ---- batch ----
+    def suggest_many(self, raw_names: list[str], k: int = 5, categories: list | None = None) -> list[list[Suggestion]]:
         if not self.entries:
             return [[] for _ in raw_names]
+        cats = categories or [None] * len(raw_names)
         if self._use_embeddings and self._emb is not None:
-            return self._suggest_semantic(raw_names, k)
-        return [self._suggest_fuzzy(rn, k) for rn in raw_names]
+            return self._suggest_semantic(raw_names, cats, k)
+        return [self._suggest_fuzzy(rn, c, k) for rn, c in zip(raw_names, cats)]
 
-    def match_many(self, raw_names: list[str]) -> list[MatchResult]:
-        return [self._decide(s) for s in self.suggest_many(raw_names)]
+    def match_many(self, raw_names: list[str], categories: list | None = None) -> list[MatchResult]:
+        return [self._decide(s) for s in self.suggest_many(raw_names, categories=categories)]
 
-    # ---- implementations ----
-    def _suggest_fuzzy(self, raw_name: str, k: int) -> list[Suggestion]:
+    # ---- impl ----
+    def _boost(self, score: float, raw_cat: str | None, entry_cat: str | None) -> float:
+        if raw_cat and entry_cat:
+            if fuzz.token_set_ratio(normalize(raw_cat), normalize(entry_cat)) >= 80:
+                return min(1.0, score + CATEGORY_BOOST)
+        return score
+
+    def _suggest_fuzzy(self, raw_name: str, category: str | None, k: int) -> list[Suggestion]:
         cands = fuzzy_candidates(raw_name, self.entries, k=k)
-        return [Suggestion(e.service_id, e.canonical_name, s, MatchMethod.fuzzy) for e, s in cands]
+        out = [
+            Suggestion(e.service_id, e.canonical_name, self._boost(s, category, e.category), MatchMethod.fuzzy)
+            for e, s in cands
+        ]
+        out.sort(key=lambda s: s.score, reverse=True)
+        return out
 
-    def _suggest_semantic(self, raw_names: list[str], k: int) -> list[list[Suggestion]]:
+    def _suggest_semantic(self, raw_names: list[str], categories: list, k: int) -> list[list[Suggestion]]:
         import numpy as np
 
         queries = [normalize(r) for r in raw_names]
-        qmat = embeddings.encode(queries)  # (n, d), L2-normalized
-        sims = qmat @ self._emb.T          # (n, n_entries) cosine
+        qmat = embeddings.encode_queries(queries)        # (n, d) L2-normalized
+        sims = qmat @ self._emb.T                          # (n, n_entries) cosine
         out: list[list[Suggestion]] = []
-        for qi, raw_name in enumerate(raw_names):
+        for qi in range(len(raw_names)):
             row = sims[qi]
             top_idx = np.argsort(-row)[: k * 4]
             best: dict[str, Suggestion] = {}
@@ -94,19 +129,40 @@ class Matcher:
                 e = self.entries[idx]
                 cos = max(0.0, float(row[idx]))
                 fz = fuzz.token_set_ratio(queries[qi], e.norm) / 100.0
-                score = max(cos, fz)
+                score = self._boost(max(cos, fz), categories[qi], e.category)
                 method = MatchMethod.embedding if cos >= fz else MatchMethod.fuzzy
                 if e.service_id not in best or score > best[e.service_id].score:
                     best[e.service_id] = Suggestion(e.service_id, e.canonical_name, score, method)
             out.append(sorted(best.values(), key=lambda s: s.score, reverse=True)[:k])
+
+        # optional cross-encoder rerank of the shortlist (offline; high precision)
+        if self._reranker:
+            pairs, idx = [], []
+            for qi, lst in enumerate(out):
+                for j, s in enumerate(lst):
+                    pairs.append((raw_names[qi], s.canonical_name))
+                    idx.append((qi, j))
+            try:
+                scores = rerank.score_pairs(pairs)
+                for (qi, j), sc in zip(idx, scores):
+                    out[qi][j].score = self._boost(sc, categories[qi], None)
+                    out[qi][j].method = MatchMethod.embedding
+                out = [sorted(lst, key=lambda s: s.score, reverse=True) for lst in out]
+            except Exception:  # noqa: BLE001
+                pass
         return out
 
     def _decide(self, sugg: list[Suggestion]) -> MatchResult:
         if not sugg:
             return MatchResult(MatchStatus.unmatched, None, MatchMethod.fuzzy, None, [])
+        # thresholds depend on the scoring scale actually used (cross-encoder lower)
+        if self._reranker:
+            auto_t, floor_t = settings.rerank_auto_threshold, settings.rerank_review_floor
+        else:
+            auto_t, floor_t = settings.match_auto_threshold, settings.match_review_floor
         best = sugg[0]
-        if best.score >= settings.match_auto_threshold:
+        if best.score >= auto_t:
             return MatchResult(MatchStatus.auto, best.score, best.method, best.service_id, sugg)
-        if best.score >= settings.match_review_floor:
+        if best.score >= floor_t:
             return MatchResult(MatchStatus.review, best.score, best.method, None, sugg)
         return MatchResult(MatchStatus.unmatched, best.score, best.method, None, sugg)

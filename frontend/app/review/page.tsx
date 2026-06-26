@@ -11,7 +11,7 @@ export default function ReviewPage() {
   const [done, setDone] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function confirm(item: Unmatched, serviceId: string, label: string) {
+  async function confirmMatch(item: Unmatched, serviceId: string, label: string) {
     setBusy(item.item_id);
     try {
       await api.match({ item_id: item.item_id, service_id: serviceId, decided_by: "operator" });
@@ -25,6 +25,32 @@ export default function ReviewPage() {
 
   const pending = (data || []).filter((i) => !done[i.item_id]);
 
+  // bulk accept
+  const [thr, setThr] = useState("0.80");
+  const [eligible, setEligible] = useState<number | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  async function preview() {
+    setEligible(null);
+    const r = await api.bulkAccept(parseFloat(thr), true);
+    setEligible(r.eligible);
+  }
+  async function applyBulk() {
+    const score = parseFloat(thr);
+    if (!window.confirm(`Принять верх очереди со скором ≥ ${score}? Это массовая операция.`)) return;
+    setBulkBusy(true);
+    try {
+      const r = await api.bulkAccept(score, false);
+      window.alert(`Принято: ${r.accepted}`);
+      setEligible(null);
+      reload();
+    } catch (e) {
+      window.alert("Ошибка: " + (e as Error).message);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   return (
     <>
       <PageHead eyebrow="06 · Верификация" title="Очередь ручной разметки">
@@ -35,6 +61,26 @@ export default function ReviewPage() {
         Позиции, которые система не сопоставила автоматически. Для каждой — ранжированные подсказки из справочника.
         Оператор подтверждает одной кнопкой; выбор сохраняется как синоним и учит систему.
       </p>
+
+      <div className="panel pad" style={{ marginBottom: 22 }}>
+        <div className="upper muted" style={{ marginBottom: 10 }}>Массовое принятие по порогу</div>
+        <div className="row" style={{ gap: 12 }}>
+          <span style={{ fontSize: 14 }}>Принять все подсказки со скором ≥</span>
+          <input
+            className="input" style={{ width: 80, padding: "7px 10px", textAlign: "center" }}
+            value={thr} onChange={(e) => { setThr(e.target.value); setEligible(null); }}
+          />
+          <button className="btn small" onClick={preview}>Сколько?</button>
+          {eligible !== null && <span className="badge ink">{eligible} позиций</span>}
+          <div className="spacer" />
+          <button className="btn small primary" disabled={bulkBusy} onClick={applyBulk}>
+            {bulkBusy ? "Принимаю…" : "Принять верх очереди"}
+          </button>
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 9 }}>
+          Верх (≥0.80) почти всегда верный; чем ниже порог, тем больше ошибок. Низ 0.60–0.70 лучше разбирать вручную.
+        </div>
+      </div>
 
       {loading && <Loading />}
       {error && <ErrorNote error={error} />}
@@ -74,7 +120,7 @@ export default function ReviewPage() {
                     <button
                       className="btn small primary"
                       disabled={busy === item.item_id}
-                      onClick={() => confirm(item, s.service_id, s.canonical_name)}
+                      onClick={() => confirmMatch(item, s.service_id, s.canonical_name)}
                     >
                       <span className="row" style={{ gap: 6 }}><Glyph.review size={13} /> Подтвердить</span>
                     </button>

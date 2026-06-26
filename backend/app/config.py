@@ -18,10 +18,14 @@ class Settings(BaseSettings):
     storage_dir: Path = Path("./storage")
 
     # Normalization
-    match_auto_threshold: float = 0.85
+    match_auto_threshold: float = 0.85       # bi-encoder (e5) score scale
     match_review_floor: float = 0.60
+    rerank_auto_threshold: float = 0.65      # cross-encoder score scale (lower band)
+    rerank_review_floor: float = 0.45
     use_embeddings: bool = True
-    embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_model: str = "intfloat/multilingual-e5-base"
+    use_reranker: bool = False  # offline precision booster (heavy); set true for batch renormalize/eval
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
     # Validation
     price_change_anomaly_pct: float = 50.0

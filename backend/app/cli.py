@@ -67,10 +67,21 @@ def main() -> None:
         from app.services.normalize_all import renormalize_all
 
         print(renormalize_all())
+    elif cmd == "accept-review":
+        # python -m app.cli accept-review 0.80 [--dry]
+        from app.services.review_ops import bulk_accept_review
+
+        min_score = float(sys.argv[2]) if len(sys.argv) > 2 else 0.80
+        dry = "--dry" in sys.argv
+        print(bulk_accept_review(min_score, dry_run=dry))
     elif cmd == "report":
         from app.services.report import print_report
 
         print_report()
+    elif cmd == "eval":
+        from app.eval.evaluate import print_report as eval_report
+
+        eval_report()
     else:
         print(__doc__)
 
