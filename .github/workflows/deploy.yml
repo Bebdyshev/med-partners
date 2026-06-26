@@ -25,5 +25,5 @@ jobs:
             cd ~/test
             git pull --ff-only
             cd deploy
-            docker compose -f docker-compose.prod.yml up -d --build
-            docker image prune -f
+            # data layer only — Postgres + Redis (backend/frontend not deployed here)
+            docker compose -f docker-compose.prod.yml up -d postgres redis

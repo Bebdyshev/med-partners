@@ -16,6 +16,8 @@ services:
       POSTGRES_USER: medarchive
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medarchive}
       POSTGRES_DB: medarchive
+    ports:
+      - "5436:5432"                  # host:container — reachable for remote clients
     volumes:
       - medpgdata:/var/lib/postgresql/data
       # *.sql.gz here is auto-restored on FIRST init (empty volume) -> seeds the demo DB
@@ -31,6 +33,9 @@ services:
     image: redis:7
     container_name: med-redis
     restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-medarchive}"]
+    ports:
+      - "6380:6379"
     networks: [mednet]
 
   api:
@@ -43,7 +48,7 @@ services:
     command: bash -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     environment:
       DATABASE_URL: postgresql+psycopg2://medarchive:${POSTGRES_PASSWORD:-medarchive}@postgres:5432/medarchive
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://:${REDIS_PASSWORD:-medarchive}@redis:6379/0
       STORAGE_DIR: /data/storage
       USE_EMBEDDINGS: "true"
       USE_RERANKER: "false"          # heavy per-request; offline-only (data already normalized)
@@ -69,7 +74,7 @@ services:
     command: celery -A app.tasks.celery_app.celery worker --loglevel=info --concurrency=2
     environment:
       DATABASE_URL: postgresql+psycopg2://medarchive:${POSTGRES_PASSWORD:-medarchive}@postgres:5432/medarchive
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://:${REDIS_PASSWORD:-medarchive}@redis:6379/0
       STORAGE_DIR: /data/storage
       USE_EMBEDDINGS: "true"
       USE_RERANKER: "false"
