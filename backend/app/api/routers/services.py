@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import functools
+import json
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -14,6 +17,34 @@ from app.schemas.dto import PartnerPriceOut, ServiceOut, ServiceUpdate, TierOut
 router = APIRouter()
 
 _TIER_ORDER = {t: i for i, t in enumerate(TierType)}
+
+_DESC_FILE = Path(__file__).parent.parent.parent / "data" / "service_descriptions.json"
+
+
+@functools.lru_cache(maxsize=1)
+def _load_descriptions() -> list[dict]:
+    try:
+        return json.loads(_DESC_FILE.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _find_description(canonical_name: str) -> dict | None:
+    name_lower = canonical_name.lower()
+    for d in _load_descriptions():
+        pattern = (d.get("canonical_name_pattern") or "").lower()
+        if pattern and pattern in name_lower:
+            return d
+        slug_check = (d.get("slug") or "").replace("-", " ")
+        if slug_check and slug_check in name_lower:
+            return d
+    return None
+
+
+@router.get("/service-descriptions")
+def list_descriptions():
+    """All curated service descriptions (for search/enrichment)."""
+    return _load_descriptions()
 
 
 @router.get("/services", response_model=list[ServiceOut])
@@ -54,6 +85,18 @@ def update_service(service_id: uuid.UUID, body: ServiceUpdate, db: Session = Dep
     db.commit()
     db.refresh(svc)
     return svc
+
+
+@router.get("/services/{service_id}/description")
+def service_description(service_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Curated educational description for a service (what it is, why useful, how to prepare)."""
+    svc = db.get(Service, service_id)
+    if svc is None:
+        raise HTTPException(404, "service not found")
+    desc = _find_description(svc.canonical_name)
+    if desc is None:
+        return {"canonical_name": svc.canonical_name, "found": False}
+    return {**desc, "canonical_name": svc.canonical_name, "found": True}
 
 
 @router.get("/services/{service_id}/partners", response_model=list[PartnerPriceOut])

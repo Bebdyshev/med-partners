@@ -77,4 +77,12 @@ export const Glyph = {
   tag: ({ size = 18, className }: P) => (
     <svg {...base(size)} className={className}><path d="M3 12V4h8l9 9-8 8z"/><path d="M8 8h.01"/></svg>
   ),
+  // clock: circle + hour/minute hands
+  clock: ({ size = 16, className }: P) => (
+    <svg {...base(size)} className={className}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+  ),
+  // info: circle with i
+  info: ({ size = 16, className }: P) => (
+    <svg {...base(size)} className={className}><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M12 12v4"/></svg>
+  ),
 };

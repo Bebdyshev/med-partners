@@ -452,3 +452,54 @@
 .ptbl-fmts { display: inline-flex; gap: 6px; }
 .ptbl-go a { color: var(--muted); display: inline-flex; transition: color .12s var(--ease), transform .12s var(--ease); }
 .ptbl-go a:hover { color: var(--accent); transform: translateX(2px); }
+
+/* ---------------------------------------------------------------
+   SERVICE DESCRIPTION — encyclopedia panel
+   --------------------------------------------------------------- */
+.svc-desc {
+  margin: 0 0 28px;
+  padding: 20px 22px 16px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+}
+.svc-desc-short {
+  margin: 0 0 16px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.svc-desc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px 22px;
+}
+.svc-desc-block { }
+.svc-desc-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.svc-desc-text {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.svc-desc-meta {
+  display: flex;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.svc-desc-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}

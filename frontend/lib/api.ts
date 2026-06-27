@@ -11,7 +11,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 import type {
-  AiCompare, Dashboard, DashboardDocs, DashboardPartners, DocPreview, DocumentRow, Partner, PartnerPrice, SearchResult, Service, ServicePrice, Unmatched,
+  AiCompare, Dashboard, DashboardDocs, DashboardPartners, DocPreview, DocumentRow, Partner, PartnerPrice, SearchResult, Service, ServiceDescription, ServicePrice, Unmatched,
 } from "./types";
 
 export const api = {
@@ -28,6 +28,7 @@ export const api = {
     return j<Service[]>(`/services?${u}`);
   },
   servicePartners: (id: string) => j<PartnerPrice[]>(`/services/${id}/partners`),
+  serviceDescription: (id: string) => j<ServiceDescription>(`/services/${id}/description`),
   updateService: (id: string, body: { canonical_name?: string; category?: string | null; icd_code?: string | null; is_active?: boolean }) =>
     j<Service>(`/services/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 

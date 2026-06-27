@@ -1,0 +1,248 @@
+{
+  "Comment": "MedArchive document processing pipeline — serverless alternative to Celery worker",
+  "StartAt": "ValidateUpload",
+  "States": {
+    "ValidateUpload": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "medarchive-validate-upload",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.validation",
+      "Next": "ChooseExtractor",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "MarkError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "ChooseExtractor": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.file_format",
+          "StringEquals": "scan_pdf",
+          "Next": "VisionOCRExtract"
+        },
+        {
+          "Variable": "$.file_format",
+          "StringMatches": "*pdf*",
+          "Next": "PDFExtract"
+        },
+        {
+          "Or": [
+            { "Variable": "$.file_format", "StringEquals": "xlsx" },
+            { "Variable": "$.file_format", "StringEquals": "xls" }
+          ],
+          "Next": "SpreadsheetExtract"
+        }
+      ],
+      "Default": "GenericExtract"
+    },
+
+    "VisionOCRExtract": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "medarchive-vision-ocr",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.raw_rows",
+      "Next": "LLMNormalize",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PDFExtract",
+          "ResultPath": "$.vision_error",
+          "Comment": "Vision OCR failed — fall back to text-layer extraction"
+        }
+      ]
+    },
+
+    "PDFExtract": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "medarchive-pdf-extract",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.raw_rows",
+      "Next": "LLMNormalize",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "MarkError", "ResultPath": "$.error" }]
+    },
+
+    "SpreadsheetExtract": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "medarchive-xlsx-extract",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.raw_rows",
+      "Next": "LLMNormalize",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "MarkError", "ResultPath": "$.error" }]
+    },
+
+    "GenericExtract": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "medarchive-docx-extract",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.raw_rows",
+      "Next": "LLMNormalize",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "MarkError", "ResultPath": "$.error" }]
+    },
+
+    "LLMNormalize": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "medarchive-llm-normalize",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.normalized_rows",
+      "Next": "EmbedAndRerank",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "Comment": "Retry on transient LLM rate-limits"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "EmbedAndRerank",
+          "ResultPath": "$.normalize_error",
+          "Comment": "LLM normalize failure is non-fatal — raw names used for embedding"
+        }
+      ]
+    },
+
+    "EmbedAndRerank": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Parameters": {
+        "LaunchType": "FARGATE",
+        "Cluster": "medarchive-cluster",
+        "TaskDefinition": "medarchive-embed-rerank",
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "embed-rerank",
+              "Environment": [
+                { "Name": "DOC_ID", "Value.$": "$.doc_id" },
+                { "Name": "ROWS_S3_KEY", "Value.$": "$.normalized_rows.s3_key" }
+              ]
+            }
+          ]
+        },
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets.$": "$.network.subnets",
+            "SecurityGroups.$": "$.network.security_groups",
+            "AssignPublicIp": "DISABLED"
+          }
+        }
+      },
+      "ResultPath": "$.embed_result",
+      "Next": "StoreResults",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "ECS.AmazonECSException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 2,
+          "BackoffRate": 1.5
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "MarkError", "ResultPath": "$.error" }]
+    },
+
+    "StoreResults": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "medarchive-store-results",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.store_result",
+      "Next": "NotifyComplete",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "MarkError", "ResultPath": "$.error" }]
+    },
+
+    "NotifyComplete": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:us-east-1:ACCOUNT_ID:medarchive-pipeline-events",
+        "Message": {
+          "event": "document_processed",
+          "doc_id.$": "$.doc_id",
+          "partner_id.$": "$.partner_id",
+          "auto_matched.$": "$.embed_result.auto_matched",
+          "review_queue.$": "$.embed_result.review_queue",
+          "unmatched.$": "$.embed_result.unmatched"
+        }
+      },
+      "End": true
+    },
+
+    "MarkError": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "medarchive-mark-error",
+        "Payload.$": "$"
+      },
+      "End": true
+    }
+  }
+}

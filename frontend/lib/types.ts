@@ -50,6 +50,19 @@ export type DocPreview = {
   error?: string;
 };
 
+export type ServiceDescription = {
+  slug?: string;
+  canonical_name: string;
+  canonical_name_pattern?: string;
+  short?: string;
+  what?: string;
+  why?: string;
+  prep?: string;
+  duration_min?: number;
+  category?: string;
+  found: boolean;
+};
+
 export type SearchResult = {
   services: { id: string; canonical_name: string; category: string | null; rank: number }[];
   partners: { id: string; display_name: string; city: string | null }[];

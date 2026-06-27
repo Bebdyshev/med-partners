@@ -25,31 +25,41 @@ class Settings(BaseSettings):
     use_embeddings: bool = True
     # provider: "openai" (API, text-embedding-3-*) or "sentence_transformers" (local e5)
     embedding_provider: str = "openai"
-    embedding_model: str = "intfloat/multilingual-e5-base"   # used when provider = sentence_transformers
+    embedding_model: str = "intfloat/multilingual-e5-large"   # local model (sentence_transformers)
     openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-large"
     use_reranker: bool = False  # local cross-encoder (heavy); superseded by the LLM reranker below
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
-    # LLM reranker — an OpenAI chat model judges the embedding shortlist (no local ML).
+    # LLM provider — "openai" uses the OpenAI API; "ollama" uses a local Ollama instance
+    # (OpenAI-compatible REST at ollama_base_url). Switch to "ollama" for fully on-premise.
+    llm_provider: str = "openai"           # "openai" | "ollama"
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "qwen2.5:7b"           # any chat model served by Ollama
+    ollama_vision_model: str = "qwen2.5vl:7b"  # multimodal model for vision OCR
+
+    # LLM reranker — judges the embedding shortlist (precision stage).
     use_llm_rerank: bool = True
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = "gpt-4o-mini"        # used when llm_provider = "openai"
     llm_auto_threshold: float = 0.70   # LLM-confirmed match -> auto
     llm_review_floor: float = 0.65     # LLM rejected but candidate still plausible (cosine) -> review; else unmatched
     llm_rerank_band_lo: float = 0.40   # only judge items whose top embedding score >= this
     llm_max_workers: int = 12          # concurrency for batch judging
 
-    # Vision OCR — an OpenAI vision model returns STRUCTURED rows for scanned pages,
-    # preserving table structure (name / code / biomaterial / prices) that the text
-    # layer loses. Gated by an OpenAI key (like the LLM reranker). No local ML.
+    # Vision OCR — vision model returns STRUCTURED rows for scanned pages,
+    # preserving table structure (name / code / biomaterial / prices).
     use_vision_ocr: bool = True
-    vision_model: str = "gpt-4o"
+    vision_model: str = "gpt-4o"      # used when llm_provider = "openai"
 
-    # LLM name normalization: clean each raw name to a canonical phrase before embedding
-    # (lifts retrieval recall on messy/abbreviated names). Disk-cached. No local ML.
+    # LLM name normalization: clean each raw name to a canonical phrase before embedding.
+    # Disk-cached — each unique raw name is cleaned exactly once.
     use_llm_normalize: bool = True
     use_llm_normalize_dict: bool = True   # also clean dictionary names (symmetry — lifts recall ~4pp)
     match_top_k: int = 20              # shortlist size handed to the LLM judge (recall vs cost)
+
+    # AWS Step Functions (optional — set to enable serverless async pipeline)
+    aws_region: str = "us-east-1"
+    aws_sfn_arn: str | None = None     # state machine ARN; if set, uploads trigger SFN instead of Celery
 
     @property
     def active_embedding_model(self) -> str:
@@ -57,6 +67,16 @@ class Settings(BaseSettings):
         if self.embedding_provider == "openai":
             return self.openai_embedding_model
         return self.embedding_model
+
+    @property
+    def active_llm_model(self) -> str:
+        """Chat model name for the configured LLM provider."""
+        return self.ollama_model if self.llm_provider == "ollama" else self.llm_model
+
+    @property
+    def active_vision_model(self) -> str:
+        """Vision model name for the configured LLM provider."""
+        return self.ollama_vision_model if self.llm_provider == "ollama" else self.vision_model
 
     # Validation
     price_change_anomaly_pct: float = 50.0
