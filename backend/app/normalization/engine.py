@@ -92,16 +92,18 @@ class Matcher:
         return self._decide(self.suggest(raw_name, category=category))
 
     # ---- batch ----
-    def suggest_many(self, raw_names: list[str], k: int = 5, categories: list | None = None) -> list[list[Suggestion]]:
+    def suggest_many(self, raw_names: list[str], k: int = 5, categories: list | None = None,
+                     query_texts: list[str] | None = None) -> list[list[Suggestion]]:
         if not self.entries:
             return [[] for _ in raw_names]
         cats = categories or [None] * len(raw_names)
         if self._use_embeddings and self._emb is not None:
-            return self._suggest_semantic(raw_names, cats, k)
+            return self._suggest_semantic(raw_names, cats, k, query_texts)
         return [self._suggest_fuzzy(rn, c, k) for rn, c in zip(raw_names, cats)]
 
-    def match_many(self, raw_names: list[str], categories: list | None = None) -> list[MatchResult]:
-        return [self._decide(s) for s in self.suggest_many(raw_names, categories=categories)]
+    def match_many(self, raw_names: list[str], categories: list | None = None,
+                   k: int = 5, query_texts: list[str] | None = None) -> list[MatchResult]:
+        return [self._decide(s) for s in self.suggest_many(raw_names, k=k, categories=categories, query_texts=query_texts)]
 
     # ---- impl ----
     def _boost(self, score: float, raw_cat: str | None, entry_cat: str | None) -> float:
@@ -119,10 +121,13 @@ class Matcher:
         out.sort(key=lambda s: s.score, reverse=True)
         return out
 
-    def _suggest_semantic(self, raw_names: list[str], categories: list, k: int) -> list[list[Suggestion]]:
+    def _suggest_semantic(self, raw_names: list[str], categories: list, k: int,
+                          query_texts: list[str] | None = None) -> list[list[Suggestion]]:
         import numpy as np
 
-        queries = [normalize(r) for r in raw_names]
+        # Embed the (optionally LLM-cleaned) query text; the LLM judge below still sees the
+        # original raw_name, so retrieval gets the clean signal without trusting it blindly.
+        queries = [normalize(t) for t in query_texts] if query_texts is not None else [normalize(r) for r in raw_names]
         qmat = embeddings.encode_queries(queries)        # (n, d) L2-normalized
         sims = qmat @ self._emb.T                          # (n, n_entries) cosine
         out: list[list[Suggestion]] = []

@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     use_vision_ocr: bool = True
     vision_model: str = "gpt-4o"
 
+    # LLM name normalization: clean each raw name to a canonical phrase before embedding
+    # (lifts retrieval recall on messy/abbreviated names). Disk-cached. No local ML.
+    use_llm_normalize: bool = True
+    match_top_k: int = 20              # shortlist size handed to the LLM judge (recall vs cost)
+
     @property
     def active_embedding_model(self) -> str:
         """Name of the embedding model for the selected provider (also the cache key)."""

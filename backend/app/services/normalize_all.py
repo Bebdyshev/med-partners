@@ -14,6 +14,8 @@ from sqlalchemy import select
 from app.db.session import session_scope
 from app.models import MatchDecision, PriceItem
 from app.models.enums import MatchAction, MatchMethod, MatchStatus
+from app.config import settings
+from app.normalization import llm_normalize
 from app.normalization.code_match import find_code_in_text
 from app.normalization.dictionary import load_matcher
 
@@ -55,10 +57,14 @@ def renormalize_all() -> dict:
                 pending.append(item)
 
         # --- pass 2: name matching, batched by distinct (name, category) ---
+        # LLM-clean the names first (better retrieval), then judge the top-k shortlist.
         keys = sorted({(it.raw_name, it.raw_category or "") for it in pending})
         names = [k[0] for k in keys]
         cats = [k[1] or None for k in keys]
-        results = dict(zip(keys, matcher.match_many(names, categories=cats)))
+        query_texts = llm_normalize.clean_names(names) if llm_normalize.available() else None
+        results = dict(zip(keys, matcher.match_many(
+            names, categories=cats, k=settings.match_top_k, query_texts=query_texts
+        )))
 
         for item in pending:
             res = results.get((item.raw_name, item.raw_category or ""))
