@@ -6,6 +6,8 @@ import { useFetch } from "@/lib/useFetch";
 import type { Service } from "@/lib/types";
 import { PageHead, Loading, ErrorNote } from "@/components/Bits";
 import { Glyph } from "@/components/Icon";
+import { Reveal } from "@/components/Motion";
+import "@/app/discovery.css";
 
 type Draft = { canonical_name: string; category: string; icd_code: string };
 
@@ -46,70 +48,86 @@ export default function ServicesPage() {
   return (
     <>
       <PageHead eyebrow="Справочник" title="Услуги">
-        <span className="muted" style={{ fontSize: 13 }}>Редактирование позиций справочника</span>
+        <span className="muted" style={{ fontSize: 13 }}>Эталонный реестр — редактирование позиций</span>
       </PageHead>
 
-      <form
-        className="field" style={{ maxWidth: 460 }}
-        onSubmit={(e) => { e.preventDefault(); setApplied(q.trim()); }}
-      >
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="фильтр по названию…" />
-        <button className="btn" style={{ boxShadow: "none", borderLeft: "1px solid var(--rule-strong)" }}>Фильтр</button>
-      </form>
+      <div className="disc-reg-toolbar">
+        <form
+          className="field" style={{ maxWidth: 460, flex: 1, minWidth: 240 }}
+          onSubmit={(e) => { e.preventDefault(); setApplied(q.trim()); }}
+        >
+          <span style={{ display: "grid", placeItems: "center", paddingLeft: 14, color: "var(--muted)" }}><Glyph.find size={16} /></span>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="фильтр по названию услуги…" />
+          <button className="btn" style={{ boxShadow: "none", borderLeft: "1px solid var(--rule-strong)" }}>Фильтр</button>
+        </form>
+        {data && <span className="disc-reg-count">{data.length} {applied ? "найдено" : "позиций"}</span>}
+      </div>
 
-      <div style={{ marginTop: 20 }}>
+      <div>
         {loading && <Loading />}
         {error && <ErrorNote error={error} />}
         {data && (
-          <div className="panel">
-            <table className="table">
-              <thead><tr><th style={{ width: 50 }}>#</th><th>Наименование</th><th style={{ width: 200 }}>Категория</th><th style={{ width: 130 }}>Код</th><th style={{ width: 210 }}></th></tr></thead>
-              <tbody>
-                {data.map((s, i) => {
-                  const editing = editId === s.id;
+          <Reveal dir="up">
+            <div className="disc-reg">
+              <div className="disc-reg-row disc-head">
+                <div className="disc-reg-idx">#</div>
+                <div>Наименование</div>
+                <div>Категория</div>
+                <div className="disc-col-code">Код МКБ</div>
+                <div style={{ textAlign: "right" }}></div>
+              </div>
+
+              {data.map((s, i) => {
+                const editing = editId === s.id;
+                if (editing) {
                   return (
-                    <tr key={s.id}>
-                      <td className="num muted">{i + 1}</td>
-                      {editing ? (
-                        <>
-                          <td><input className="input" style={{ width: "100%" }} value={draft.canonical_name} autoFocus
-                            onChange={(e) => setDraft({ ...draft, canonical_name: e.target.value })} /></td>
-                          <td><input className="input" style={{ width: "100%" }} value={draft.category} placeholder="—"
-                            onChange={(e) => setDraft({ ...draft, category: e.target.value })} /></td>
-                          <td><input className="input mono" style={{ width: "100%" }} value={draft.icd_code} placeholder="—"
-                            onChange={(e) => setDraft({ ...draft, icd_code: e.target.value })} /></td>
-                          <td>
-                            <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
-                              <button className="btn small primary" disabled={busy} onClick={() => save(s.id)}>
-                                <Glyph.check size={13} /> {busy ? "…" : "Сохранить"}
-                              </button>
-                              <button className="btn small" disabled={busy} onClick={() => { setEditId(null); setErr(null); }}>Отмена</button>
-                            </div>
-                            {err && <div className="mono" style={{ color: "var(--oxblood)", fontSize: 12, marginTop: 6, textAlign: "right" }}>{err}</div>}
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td>{s.canonical_name}</td>
-                          <td className="muted">{s.category || "—"}</td>
-                          <td className="mono muted" style={{ fontSize: 12 }}>{s.icd_code || "—"}</td>
-                          <td>
-                            <div className="row" style={{ gap: 14, justifyContent: "flex-end" }}>
-                              <button className="btn small" onClick={() => startEdit(s)}>Изменить</button>
-                              <Link href={`/services/${s.id}?name=${encodeURIComponent(s.canonical_name)}`} className="row" style={{ gap: 6 }}>
-                                клиники <Glyph.arrow size={14} />
-                              </Link>
-                            </div>
-                          </td>
-                        </>
-                      )}
-                    </tr>
+                    <div className="disc-reg-row disc-editing" key={s.id}>
+                      <div className="disc-reg-idx">{i + 1}</div>
+                      <div>
+                        <input className="input" style={{ width: "100%" }} value={draft.canonical_name} autoFocus
+                          onChange={(e) => setDraft({ ...draft, canonical_name: e.target.value })} />
+                      </div>
+                      <div>
+                        <input className="input" style={{ width: "100%" }} value={draft.category} placeholder="—"
+                          onChange={(e) => setDraft({ ...draft, category: e.target.value })} />
+                      </div>
+                      <div className="disc-col-code">
+                        <input className="input mono" style={{ width: "100%" }} value={draft.icd_code} placeholder="—"
+                          onChange={(e) => setDraft({ ...draft, icd_code: e.target.value })} />
+                      </div>
+                      <div className="disc-reg-actions">
+                        <button className="btn small primary" disabled={busy} onClick={() => save(s.id)}>
+                          <Glyph.check size={13} /> {busy ? "…" : "Сохранить"}
+                        </button>
+                        <button className="btn small" disabled={busy} onClick={() => { setEditId(null); setErr(null); }}>Отмена</button>
+                      </div>
+                      {err && <div className="disc-reg-err">{err}</div>}
+                    </div>
                   );
-                })}
-                {data.length === 0 && <tr><td colSpan={5} className="muted" style={{ padding: 30, textAlign: "center" }}>Ничего не найдено</td></tr>}
-              </tbody>
-            </table>
-          </div>
+                }
+                return (
+                  <div className="disc-reg-row" key={s.id}>
+                    <div className="disc-reg-idx">{i + 1}</div>
+                    <div className="disc-reg-name">{s.canonical_name}</div>
+                    <div className="disc-reg-cat">{s.category || <span className="muted">—</span>}</div>
+                    <div className="disc-col-code">
+                      <span className={`disc-tag-mono ${s.icd_code ? "" : "disc-empty-tag"}`}>{s.icd_code || "—"}</span>
+                    </div>
+                    <div className="disc-reg-actions">
+                      <button className="btn small" onClick={() => startEdit(s)}>Изменить</button>
+                      <Link href={`/services/${s.id}?name=${encodeURIComponent(s.canonical_name)}`} className="disc-reg-link">
+                        клиники <Glyph.arrow size={14} />
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {data.length === 0 && (
+                <div style={{ padding: 34, textAlign: "center" }} className="muted">Ничего не найдено</div>
+              )}
+            </div>
+          </Reveal>
         )}
       </div>
     </>

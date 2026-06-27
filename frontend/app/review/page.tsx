@@ -1,10 +1,20 @@
 "use client";
+import "../pipeline.css";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useFetch } from "@/lib/useFetch";
 import type { Unmatched } from "@/lib/types";
 import { PageHead, Loading, ErrorNote, StatusBadge, Meter } from "@/components/Bits";
+import { Reveal } from "@/components/Motion";
 import { Glyph } from "@/components/Icon";
+
+const PRESETS = ["0.70", "0.80", "0.90"];
+
+function band(score: number): { color: string; text: string } {
+  if (score >= 0.85) return { color: "var(--ok)", text: "Верх очереди — почти всегда верно; безопасно принимать массово." };
+  if (score >= 0.70) return { color: "var(--amber)", text: "Середина — большинство верно, но встречаются ошибки. Просмотрите выборочно." };
+  return { color: "var(--oxblood)", text: "Низ — много неточностей. Лучше разбирать вручную, по одной позиции." };
+}
 
 export default function ReviewPage() {
   const { data, error, loading, reload } = useFetch(() => api.unmatched(40), []);
@@ -30,6 +40,8 @@ export default function ReviewPage() {
   const [eligible, setEligible] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  function setThreshold(v: string) { setThr(v); setEligible(null); }
+
   async function preview() {
     setEligible(null);
     const r = await api.bulkAccept(parseFloat(thr), true);
@@ -51,95 +63,117 @@ export default function ReviewPage() {
     }
   }
 
+  const b = band(parseFloat(thr) || 0);
+  const doneCount = Object.keys(done).length;
+
   return (
     <>
       <PageHead eyebrow="Контроль качества" title="Очередь ручной разметки">
         <button className="btn small" onClick={reload}>Обновить</button>
       </PageHead>
 
-      <p className="muted" style={{ marginTop: -14, marginBottom: 22, fontSize: 13.5, maxWidth: "62ch" }}>
-        Позиции, которые система не сопоставила автоматически. Для каждой — ранжированные подсказки из справочника.
-        Оператор подтверждает одной кнопкой; выбор сохраняется как синоним и учит систему.
+      <p className="pipe-lede">
+        Здесь оператор замыкает контур: позиции, которые система не сопоставила автоматически, получают
+        ранжированные подсказки из справочника. Подтверждение <b>одной кнопкой</b> сохраняется как синоним —
+        и в следующий раз машина справится сама.
       </p>
 
-      <div className="panel pad" style={{ marginBottom: 22 }}>
-        <div className="upper muted" style={{ marginBottom: 10 }}>Массовое принятие по порогу</div>
-        <div className="row" style={{ gap: 12 }}>
-          <span style={{ fontSize: 14 }}>Принять все подсказки со скором ≥</span>
-          <input
-            className="input" style={{ width: 80, padding: "7px 10px", textAlign: "center" }}
-            value={thr} onChange={(e) => { setThr(e.target.value); setEligible(null); }}
-          />
-          <button className="btn small" onClick={preview}>Сколько?</button>
-          {eligible !== null && <span className="badge ink">{eligible} позиций</span>}
-          <div className="spacer" />
-          <button className="btn small primary" disabled={bulkBusy} onClick={applyBulk}>
-            {bulkBusy ? "Принимаю…" : "Принять верх очереди"}
-          </button>
+      <Reveal dir="up">
+        <div className="panel pad pipe-rv-bulk" style={{ marginBottom: 22 }}>
+          <div className="hd"><span className="t">Массовое принятие по порогу</span><span className="sp" /></div>
+          <div className="pipe-thr">
+            <span className="lab">Принять подсказки со скором ≥</span>
+            <input
+              className="input pipe-thr-input"
+              value={thr}
+              onChange={(e) => setThreshold(e.target.value)}
+            />
+            <div className="pipe-presets">
+              {PRESETS.map((p) => (
+                <button key={p} className={`pipe-preset ${thr === p ? "on" : ""}`} onClick={() => setThreshold(p)}>{p}</button>
+              ))}
+            </div>
+            <button className="btn small" onClick={preview}>Сколько?</button>
+            {eligible !== null && <span className="badge ink">{eligible} позиций</span>}
+            <div className="spacer" />
+            <button className="btn small primary" disabled={bulkBusy} onClick={applyBulk}>
+              {bulkBusy ? "Принимаю…" : "Принять верх очереди"}
+            </button>
+          </div>
+          <div className="pipe-band">
+            <span className="dot" style={{ background: b.color }} />
+            {b.text}
+          </div>
         </div>
-        <div className="muted" style={{ fontSize: 12, marginTop: 9 }}>
-          Верх (≥0.80) почти всегда верный; чем ниже порог, тем больше ошибок. Низ 0.60–0.70 лучше разбирать вручную.
-        </div>
-      </div>
+      </Reveal>
 
       {loading && <Loading />}
       {error && <ErrorNote error={error} />}
 
       {data && pending.length === 0 && (
-        <div className="empty">Очередь пуста — все позиции сопоставлены. 🗸</div>
+        <div className="pipe-clear">
+          <span className="ic"><Glyph.shield size={26} /></span>
+          <div className="t">Очередь пуста</div>
+          <div className="s">Все позиции сопоставлены. Новые появятся здесь после загрузки следующего прайс-листа.</div>
+        </div>
       )}
 
       <div style={{ display: "grid", gap: 14 }}>
-        {pending.map((item) => (
-          <div key={item.item_id} className="panel pad">
-            <div className="between" style={{ alignItems: "flex-start" }}>
-              <div>
-                <div className="upper muted">{item.raw_category || "без категории"}</div>
-                <div style={{ fontSize: 17, fontWeight: 600, marginTop: 4 }}>{item.raw_name}</div>
-                <div className="row" style={{ gap: 8, marginTop: 8 }}>
-                  <StatusBadge status={item.match_status} />
-                  {item.match_score != null && (
-                    <span className="badge">скор {item.match_score.toFixed(2)}</span>
-                  )}
-                  {item.extraction_method && <span className="badge mono">{item.extraction_method}</span>}
+        {pending.map((item, idx) => (
+          <Reveal dir="up" delay={Math.min(idx, 6) * 50} key={item.item_id}>
+            <div className="panel pad pipe-q">
+              <div className="pipe-q-top">
+                <div style={{ minWidth: 0 }}>
+                  <div className="pipe-q-cat">{item.raw_category || "без категории"}</div>
+                  <div className="pipe-q-raw">{item.raw_name}</div>
+                  <div className="pipe-q-badges">
+                    <StatusBadge status={item.match_status} />
+                    {item.match_score != null && (
+                      <span className="badge">скор {item.match_score.toFixed(2)}</span>
+                    )}
+                    {item.extraction_method && <span className="badge mono">{item.extraction_method}</span>}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="section-title" style={{ marginTop: 16, marginBottom: 10 }}>Подсказки справочника</div>
-            {item.suggestions.length === 0 ? (
-              <div className="muted" style={{ fontSize: 13 }}>Кандидатов нет — можно создать новую услугу в справочнике (через API/POST&nbsp;/match).</div>
-            ) : (
-              <div style={{ display: "grid", gap: 8 }}>
-                {item.suggestions.map((s) => (
-                  <div key={s.service_id} className="between" style={{ borderBottom: "1px dashed var(--rule)", paddingBottom: 10 }}>
-                    <div className="row" style={{ gap: 14 }}>
+              <div className="pipe-sugg-head">Подсказки справочника</div>
+              {item.suggestions.length === 0 ? (
+                <div className="pipe-sugg"><span className="none">Кандидатов нет — позицию можно завести в справочник как новую услугу (через&nbsp;API&nbsp;/&nbsp;POST&nbsp;/match).</span></div>
+              ) : (
+                <div className="pipe-sugg-list">
+                  {item.suggestions.map((s, si) => (
+                    <div key={s.service_id} className={`pipe-sugg ${si === 0 ? "best" : ""}`}>
                       <Meter score={s.score} />
-                      <span>{s.canonical_name}</span>
+                      <div className="canon">
+                        {si === 0 && <div className="tag">лучшее совпадение</div>}
+                        <div className="nm">{s.canonical_name}</div>
+                      </div>
+                      <button
+                        className={`btn small ${si === 0 ? "primary" : ""}`}
+                        disabled={busy === item.item_id}
+                        onClick={() => confirmMatch(item, s.service_id, s.canonical_name)}
+                      >
+                        <Glyph.check size={13} /> Подтвердить
+                      </button>
                     </div>
-                    <button
-                      className="btn small primary"
-                      disabled={busy === item.item_id}
-                      onClick={() => confirmMatch(item, s.service_id, s.canonical_name)}
-                    >
-                      <span className="row" style={{ gap: 6 }}><Glyph.review size={13} /> Подтвердить</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Reveal>
         ))}
       </div>
 
-      {Object.keys(done).length > 0 && (
+      {doneCount > 0 && (
         <>
-          <div className="section-title">Сопоставлено в этой сессии · {Object.keys(done).length}</div>
-          <div className="panel pad" style={{ display: "grid", gap: 6 }}>
+          <div className="section-title">Сопоставлено в этой сессии · {doneCount}</div>
+          <div className="panel pad pipe-session">
             {Object.entries(done).map(([id, label]) => (
-              <div key={id} className="row" style={{ gap: 10, fontSize: 13 }}>
-                <span className="badge green">✓</span> <span className="muted">→</span> {label}
-              </div>
+              <Reveal dir="left" className="row2" key={id}>
+                <span className="chk"><Glyph.check size={12} /></span>
+                <span className="arr"><Glyph.arrow size={14} /></span>
+                <span className="lbl">{label}</span>
+              </Reveal>
             ))}
           </div>
         </>
