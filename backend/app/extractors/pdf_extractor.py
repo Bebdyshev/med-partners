@@ -56,14 +56,44 @@ class PdfExtractor(BaseExtractor):
         import pdfplumber
 
         with pdfplumber.open(path) as pdf:
-            result.meta["page_count"] = len(pdf.pages)
-            for pageno, page in enumerate(pdf.pages, start=1):
-                self._extract_page(page, pageno, result, path)
+            pages = pdf.pages
+            result.meta["page_count"] = len(pages)
+            # Vision-extract scan pages CONCURRENTLY (each call is independent), bounded
+            # by the OCR budget; the rest go through the normal per-page path.
+            vision_rows: dict[int, list] = {}
+            if vision_extract.available():
+                scan_pagenos = [pn for pn, pg in enumerate(pages, start=1) if _page_is_scan(pg)]
+                vision_rows = self._vision_pages_concurrent(path, scan_pagenos[: self.ocr_page_budget])
+            for pageno, page in enumerate(pages, start=1):
+                rows = vision_rows.get(pageno)
+                if rows:
+                    for r in rows:
+                        result.add_row(r)
+                    continue
+                self._extract_page(page, pageno, result, path, skip_vision=True)
         if not result.rows:
             result.warnings.append("pdf: no rows extracted (text + OCR both empty)")
         return result
 
-    def _extract_page(self, page, pageno: int, result: ExtractResult, pdf_path: Path) -> None:
+    def _vision_pages_concurrent(self, pdf_path: Path, pagenos: list[int]) -> dict[int, list]:
+        if not pagenos:
+            return {}
+        from concurrent.futures import ThreadPoolExecutor
+
+        def vx(pn: int):
+            try:
+                return pn, vision_extract.extract_page_rows(pdf_path, pn - 1)
+            except Exception:  # noqa: BLE001 — a bad page must not crash the document
+                return pn, []
+
+        workers = max(1, min(getattr(settings, "llm_max_workers", 8), len(pagenos)))
+        out: dict[int, list] = {}
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for pn, rows in ex.map(vx, pagenos):
+                out[pn] = rows
+        return out
+
+    def _extract_page(self, page, pageno: int, result: ExtractResult, pdf_path: Path, skip_vision: bool = False) -> None:
         text = page.extract_text() or ""
         chars, cyr_ratio = _text_quality(text)
         good_text = chars >= settings.pdf_text_min_chars_per_page and cyr_ratio >= 0.3
@@ -71,7 +101,8 @@ class PdfExtractor(BaseExtractor):
         # A scanned page carries a full-page image; its embedded OCR text layer is
         # unreliable (columns merge, codes land in the name). Prefer the vision model,
         # which returns STRUCTURED rows. Falls through to text/Tesseract if vision is off.
-        if _page_is_scan(page) and vision_extract.available() and self._ocr_used < self.ocr_page_budget:
+        # (skip_vision=True when extract() already handled vision pages concurrently.)
+        if not skip_vision and _page_is_scan(page) and vision_extract.available() and self._ocr_used < self.ocr_page_budget:
             self._ocr_used += 1
             n_before = len(result.rows)
             self._from_vision(pageno, result, pdf_path)
