@@ -18,7 +18,7 @@ from rapidfuzz import fuzz
 from app.config import settings
 from app.models.enums import MatchMethod, MatchStatus
 from app.normalization import embeddings, llm_rerank, rerank
-from app.normalization.code_match import CodeIndex
+from app.normalization.code_match import CodeIndex, find_code_in_text
 from app.normalization.fuzzy import Entry, build_entries, fuzzy_candidates
 from app.normalization.text_norm import normalize
 
@@ -82,6 +82,11 @@ class Matcher:
 
     def match(self, raw_name: str, raw_code: str | None = None, category: str | None = None) -> MatchResult:
         code = self.code_lookup(raw_code)
+        if code is None:
+            # Lab scans bury the tariff code (often Cyrillic homoglyphs) in the name.
+            alt = find_code_in_text(raw_name)
+            if alt:
+                code = self.code_lookup(alt)
         if code is not None:
             return MatchResult(MatchStatus.auto, 1.0, MatchMethod.exact, code.service_id, [code])
         return self._decide(self.suggest(raw_name, category=category))
