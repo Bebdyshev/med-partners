@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     llm_rerank_band_lo: float = 0.40   # only judge items whose top embedding score >= this
     llm_max_workers: int = 12          # concurrency for batch judging
 
+    # Vision OCR — an OpenAI vision model returns STRUCTURED rows for scanned pages,
+    # preserving table structure (name / code / biomaterial / prices) that the text
+    # layer loses. Gated by an OpenAI key (like the LLM reranker). No local ML.
+    use_vision_ocr: bool = True
+    vision_model: str = "gpt-4o"
+
     @property
     def active_embedding_model(self) -> str:
         """Name of the embedding model for the selected provider (also the cache key)."""
