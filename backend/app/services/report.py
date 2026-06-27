@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 
 from app.db.session import session_scope
-from app.models import PriceDocument, PriceItem, Service
+from app.models import Partner, PriceDocument, PriceItem, Service
 from app.models.enums import MatchStatus, ParseStatus
 
 
@@ -42,6 +42,72 @@ def compute_report() -> dict:
             },
             "flagged_for_validation": flagged,
         }
+
+
+def compute_document_breakdown() -> dict:
+    """Per-document composition (positions split by match-status + extraction method) plus
+    global provenance and category mix — powers the dashboard 'intake ledger'."""
+    with session_scope() as db:
+        docs = db.execute(
+            select(PriceDocument, Partner.display_name)
+            .join(Partner, Partner.id == PriceDocument.partner_id, isouter=True)
+        ).all()
+
+        ms: dict = {}
+        for did, st, c in db.execute(
+            select(PriceItem.document_id, PriceItem.match_status, func.count())
+            .group_by(PriceItem.document_id, PriceItem.match_status)
+        ).all():
+            ms.setdefault(did, {})[st] = c
+
+        meth: dict = {}
+        for did, m, c in db.execute(
+            select(PriceItem.document_id, PriceItem.extraction_method, func.count())
+            .group_by(PriceItem.document_id, PriceItem.extraction_method)
+        ).all():
+            meth.setdefault(did, {})[m or "—"] = c
+
+        flagged = dict(db.execute(
+            select(PriceItem.document_id, func.count())
+            .where(PriceItem.warnings != "[]")
+            .group_by(PriceItem.document_id)
+        ).all())
+
+        out_docs = []
+        for d, pname in docs:
+            mm = ms.get(d.id, {})
+            items = sum(mm.values())
+            out_docs.append({
+                "id": str(d.id),
+                "source_filename": d.source_filename,
+                "partner_name": pname,
+                "file_format": d.file_format.value if hasattr(d.file_format, "value") else str(d.file_format),
+                "status": d.status.value if hasattr(d.status, "value") else str(d.status),
+                "year": d.year,
+                "parsed_at": d.parsed_at.isoformat() if d.parsed_at else None,
+                "items": items,
+                "auto": mm.get(MatchStatus.auto, 0),
+                "review": mm.get(MatchStatus.review, 0),
+                "unmatched": mm.get(MatchStatus.unmatched, 0),
+                "manual": mm.get(MatchStatus.manual, 0),
+                "flagged": flagged.get(d.id, 0),
+                "methods": meth.get(d.id, {}),
+            })
+        out_docs.sort(key=lambda x: x["items"], reverse=True)
+
+        by_method: dict = {}
+        for mdict in meth.values():
+            for m, c in mdict.items():
+                by_method[m] = by_method.get(m, 0) + c
+
+        cats = db.execute(
+            select(PriceItem.raw_category, func.count())
+            .group_by(PriceItem.raw_category)
+            .order_by(func.count().desc())
+        ).all()
+        by_category = [{"category": c, "items": n} for c, n in cats if c and c.strip()][:10]
+
+        return {"documents": out_docs, "by_method": by_method, "by_category": by_category}
 
 
 def print_report() -> None:

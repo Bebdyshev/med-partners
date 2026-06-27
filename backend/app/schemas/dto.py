@@ -24,6 +24,14 @@ class ServiceOut(BaseModel):
     icd_code: str | None = None
 
 
+class ServiceUpdate(BaseModel):
+    """Partial edit of a dictionary service (only sent fields are changed)."""
+    canonical_name: str | None = None
+    category: str | None = None
+    icd_code: str | None = None
+    is_active: bool | None = None
+
+
 class PartnerOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID

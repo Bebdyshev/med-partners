@@ -11,11 +11,12 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 import type {
-  Dashboard, DocumentRow, Partner, PartnerPrice, SearchResult, Service, ServicePrice, Unmatched,
+  Dashboard, DashboardDocs, DocumentRow, Partner, PartnerPrice, SearchResult, Service, ServicePrice, Unmatched,
 } from "./types";
 
 export const api = {
   dashboard: () => j<Dashboard>("/dashboard/stats"),
+  dashboardDocs: () => j<DashboardDocs>("/dashboard/documents"),
   search: (q: string) => j<SearchResult>(`/search?q=${encodeURIComponent(q)}`),
 
   services: (params: { q?: string; category?: string; limit?: number } = {}) => {
@@ -26,6 +27,8 @@ export const api = {
     return j<Service[]>(`/services?${u}`);
   },
   servicePartners: (id: string) => j<PartnerPrice[]>(`/services/${id}/partners`),
+  updateService: (id: string, body: { canonical_name?: string; category?: string | null; icd_code?: string | null; is_active?: boolean }) =>
+    j<Service>(`/services/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 
   partners: (params: { city?: string } = {}) => {
     const u = new URLSearchParams();

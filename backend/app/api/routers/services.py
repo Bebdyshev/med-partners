@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.models import Partner, PriceItem, Service
 from app.models.enums import TierType
-from app.schemas.dto import PartnerPriceOut, ServiceOut, TierOut
+from app.schemas.dto import PartnerPriceOut, ServiceOut, ServiceUpdate, TierOut
 
 router = APIRouter()
 
@@ -31,6 +31,29 @@ def list_services(
         stmt = stmt.where(Service.canonical_name.ilike(f"%{q}%"))
     stmt = stmt.order_by(Service.canonical_name).limit(limit).offset(offset)
     return db.execute(stmt).scalars().all()
+
+
+@router.patch("/services/{service_id}", response_model=ServiceOut)
+def update_service(service_id: uuid.UUID, body: ServiceUpdate, db: Session = Depends(get_db)):
+    """Operator edits a dictionary service (name / category / code / active flag)."""
+    svc = db.get(Service, service_id)
+    if svc is None:
+        raise HTTPException(404, "service not found")
+    data = body.model_dump(exclude_unset=True)
+    if "canonical_name" in data:
+        name = (data["canonical_name"] or "").strip()
+        if not name:
+            raise HTTPException(400, "canonical_name cannot be empty")
+        svc.canonical_name = name
+    if "category" in data:
+        svc.category = (data["category"] or "").strip() or None
+    if "icd_code" in data:
+        svc.icd_code = (data["icd_code"] or "").strip() or None
+    if data.get("is_active") is not None:
+        svc.is_active = data["is_active"]
+    db.commit()
+    db.refresh(svc)
+    return svc
 
 
 @router.get("/services/{service_id}/partners", response_model=list[PartnerPriceOut])

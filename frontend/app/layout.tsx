@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Unbounded, Onest, IBM_Plex_Mono } from "next/font/google";
+import { Manrope, Onest, IBM_Plex_Mono } from "next/font/google";
 import AppFrame from "@/components/AppFrame";
 import "./globals.css";
 
-// Engineered display (used sparingly), clean Cyrillic UI face, tabular mono for data.
-const display = Unbounded({ subsets: ["latin", "cyrillic"], weight: ["400", "600", "800"], variable: "--font-display" });
+// Soft humanist display (warm, readable), clean Cyrillic UI face, tabular mono for data.
+const display = Manrope({ subsets: ["latin", "cyrillic"], weight: ["500", "600", "700", "800"], variable: "--font-display" });
 const body = Onest({ subsets: ["latin", "cyrillic"], weight: ["400", "500", "600", "700"], variable: "--font-body" });
 const mono = IBM_Plex_Mono({ subsets: ["latin", "cyrillic"], weight: ["400", "500", "600"], variable: "--font-mono" });
 

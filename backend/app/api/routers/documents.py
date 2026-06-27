@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.models import PriceDocument
 from app.schemas.dto import DocumentOut
-from app.services.report import compute_report
+from app.services.report import compute_document_breakdown, compute_report
 
 router = APIRouter()
 
@@ -40,6 +40,12 @@ def get_document(doc_id: uuid.UUID, db: Session = Depends(get_db)):
 @router.get("/dashboard/stats")
 def dashboard_stats(db: Session = Depends(get_db)):
     return compute_report()
+
+
+@router.get("/dashboard/documents")
+def dashboard_documents():
+    """Per-document composition + provenance + category mix for the dashboard ledger."""
+    return compute_document_breakdown()
 
 
 def _to_out(d: PriceDocument) -> DocumentOut:

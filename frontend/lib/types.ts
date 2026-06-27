@@ -50,6 +50,18 @@ export type Dashboard = {
   flagged_for_validation: number;
 };
 
+export type DocBreakdown = {
+  id: string; source_filename: string; partner_name: string | null;
+  file_format: string; status: string; year: number | null; parsed_at: string | null;
+  items: number; auto: number; review: number; unmatched: number; manual: number;
+  flagged: number; methods: Record<string, number>;
+};
+export type DashboardDocs = {
+  documents: DocBreakdown[];
+  by_method: Record<string, number>;
+  by_category: { category: string; items: number }[];
+};
+
 export const TIER_LABELS: Record<string, string> = {
   base_no_vat: "Без НДС",
   resident_kzt: "Граждане РК",
