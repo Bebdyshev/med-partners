@@ -13,7 +13,7 @@ const FORMAT_LABEL: Record<string, string> = { xlsx: "Excel", xls: "Excel", docx
 export function NormDonut({ n, total }: { n: { auto: number; review: number; unmatched: number; manual: number; auto_match_pct: number }; total: number }) {
   const r = 54, C = 2 * Math.PI * r;
   const segs: [string, string, number][] = [
-    ["var(--accent)", "Авто", n.auto],
+    ["var(--chart-auto)", "Авто", n.auto],
     ["var(--amber)", "На ревью", n.review],
     ["var(--oxblood)", "Без совпадения", n.unmatched],
     ["var(--ink)", "Вручную", n.manual],
@@ -56,7 +56,7 @@ export function Provenance({ byMethod }: { byMethod: Record<string, number> }) {
   const scan = byMethod.pdf_ocr || 0;
   const total = tables + text + scan || 1;
   const segs: [string, string, number][] = [
-    ["var(--accent)", "Таблицы", tables],
+    ["var(--chart-auto)", "Таблицы", tables],
     ["var(--ink)", "Текст / Word", text],
     ["var(--amber)", "Сканы · OCR/Vision", scan],
   ];
@@ -79,7 +79,7 @@ function LedgerRow({ d }: { d: DocBreakdown }) {
   const t = d.items || 1;
   const autoPct = Math.round(pct(d.auto, t));
   const segs: [string, number][] = [
-    ["var(--accent)", d.auto], ["var(--amber)", d.review], ["var(--oxblood)", d.unmatched], ["var(--ink)", d.manual],
+    ["var(--chart-auto)", d.auto], ["var(--amber)", d.review], ["var(--oxblood)", d.unmatched], ["var(--ink)", d.manual],
   ];
   const methods = Object.entries(d.methods).sort((a, b) => b[1] - a[1]);
   return (
@@ -92,7 +92,7 @@ function LedgerRow({ d }: { d: DocBreakdown }) {
         ))}
         <span className="spacer" />
         <span className="ltotal">{fmt(d.items)} поз</span>
-        <span className="lauto" style={{ color: autoPct >= 60 ? "var(--accent)" : "var(--amber)" }}>{autoPct}% авто</span>
+        <span className="lauto" style={{ color: autoPct >= 60 ? "var(--chart-auto)" : "var(--amber)" }}>{autoPct}% авто</span>
       </div>
       <div className="lbarrow">
         <span className="lbar">

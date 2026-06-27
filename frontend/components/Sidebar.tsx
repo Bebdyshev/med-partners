@@ -19,12 +19,8 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <Link href="/dashboard" className="brand" style={{ color: "var(--ink)" }}>
-        <span className="mark" aria-hidden>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M4 6h6l4 6 4-6M4 18h6l4-6" />
-          </svg>
-        </span>
-        <b>MedArchive</b>
+        <span className="mark" aria-hidden>M</span>
+        <b>Med<span className="ac">Archive</span></b>
       </Link>
       <p className="tagline">Реестр услуг и цен клиник-партнёров</p>
 
