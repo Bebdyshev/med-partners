@@ -1,12 +1,25 @@
 "use client";
+import "./dashboard.css";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useFetch } from "@/lib/useFetch";
+import { useInView } from "@/lib/motion";
 import { PageHead, Loading, ErrorNote } from "@/components/Bits";
+import { Reveal, Counter } from "@/components/Motion";
 import { Glyph } from "@/components/Icon";
 import { NormDonut, Provenance, DocLedger, CategoryBars } from "@/components/DashCharts";
 
 const fmt = (n: number) => n.toLocaleString("ru-RU");
+
+/** Thin confidence meter under the lead stat — fills on view. */
+function LeadMeter({ value }: { value: number }) {
+  const [ref, inView] = useInView<HTMLDivElement>({ threshold: 0.4 });
+  return (
+    <div className="dsh-meter" ref={ref} aria-hidden>
+      <i style={{ width: inView ? `${Math.max(0, Math.min(100, value))}%` : 0 }} />
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { data, error, loading } = useFetch(() => api.dashboard(), []);
@@ -25,50 +38,81 @@ export default function Dashboard() {
 
       {data && (
         <>
-          {/* slim KPI strip (de-emphasized, no big cliché cards) */}
-          <div className="kpi-strip">
-            <span className="kpi"><span className="v">{fmt(data.items_total)}</span><span className="l">позиций</span></span>
-            <span className="dot" />
-            <span className="kpi"><span className="v">{data.normalization.auto_match_pct}%</span><span className="l">сопоставлено авто</span></span>
-            <span className="dot" />
-            <span className="kpi"><span className="v">{fmt(data.documents_total)}</span><span className="l">прайсов обработано</span></span>
-            <span className="dot" />
-            <span className="kpi"><span className="v">{fmt(data.services_in_dictionary)}</span><span className="l">услуг в справочнике</span></span>
-            <span className="dot" />
-            <span className="kpi"><span className="v">{fmt(data.flagged_for_validation)}</span><span className="l">на валидации</span></span>
-          </div>
+          {/* ---- Hero readout: tabular numerals as the instrument ---- */}
+          <Reveal>
+            <div className="dsh-readout">
+              <div className="dsh-rcell lead">
+                <div className="dsh-rk"><span className="tick" style={{ background: "var(--chart-auto)" }} /> сопоставлено авто</div>
+                <span className="dsh-rv"><Counter value={data.normalization.auto_match_pct} decimals={1} /><span className="u">%</span></span>
+                <LeadMeter value={data.normalization.auto_match_pct} />
+                <div className="dsh-rsub">{fmt(data.normalization.auto)} позиций сведены к справочнику автоматически</div>
+              </div>
 
-          <div className="dash-2col" style={{ marginTop: 22 }}>
-            <div>
-              <div className="section-title">Нормализация к справочнику</div>
-              <div className="panel pad" style={{ minHeight: 150, display: "flex", alignItems: "center" }}>
+              <div className="dsh-rcell">
+                <div className="dsh-rk">позиций</div>
+                <span className="dsh-rv"><Counter value={data.items_total} /></span>
+                <div className="dsh-rsub">{fmt(data.items_active)} активных</div>
+              </div>
+
+              <div className="dsh-rcell">
+                <div className="dsh-rk">прайсов</div>
+                <span className="dsh-rv"><Counter value={data.documents_total} /></span>
+                <div className="dsh-rsub">обработано в реестре</div>
+              </div>
+
+              <div className="dsh-rcell">
+                <div className="dsh-rk">справочник</div>
+                <span className="dsh-rv"><Counter value={data.services_in_dictionary} /></span>
+                <div className="dsh-rsub">канонических услуг</div>
+              </div>
+
+              <div className="dsh-rcell flag">
+                <div className="dsh-rk"><span className="tick" style={{ background: "var(--amber)" }} /> на валидации</div>
+                <span className="dsh-rv"><Counter value={data.flagged_for_validation} /></span>
+                <div className="dsh-rsub"><Link href="/review" className="dsh-seclink">в очередь верификации <Glyph.arrow size={13} /></Link></div>
+              </div>
+            </div>
+          </Reveal>
+
+          {/* ---- Normalization + provenance instruments ---- */}
+          <div className="section-title">Нормализация к справочнику</div>
+          <Reveal>
+            <div className="dsh-grid">
+              <div className="dsh-card">
+                <div className="dsh-cardhead">
+                  <span className="t">Распределение совпадений</span>
+                  <span className="s">{fmt(data.items_total)} позиций</span>
+                </div>
                 <NormDonut n={data.normalization} total={data.items_total} />
               </div>
-            </div>
-            <div>
-              <div className="section-title">Происхождение данных</div>
-              <div className="panel pad" style={{ minHeight: 150, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                {docs ? <Provenance byMethod={docs.by_method} /> : <Loading />}
-                <div className="muted" style={{ fontSize: 12.5, marginTop: 16, lineHeight: 1.5 }}>
-                  Сканы разбираются vision-моделью в структурные строки — иначе ~21% позиций терялось бы.
+
+              <div className="dsh-card">
+                <div className="dsh-cardhead">
+                  <span className="t">Происхождение данных</span>
+                  <span className="s">метод извлечения</span>
                 </div>
+                {docs ? <Provenance byMethod={docs.by_method} /> : <Loading />}
               </div>
             </div>
-          </div>
+          </Reveal>
 
+          {/* ---- Document ledger ---- */}
           <div className="section-title">
             Документы · состав
             <span className="spacer" />
-            <Link href="/review" className="row" style={{ gap: 6, fontFamily: "var(--font-body)", textTransform: "none", letterSpacing: 0 }}>
+            <Link href="/review" className="dsh-seclink">
               Очередь верификации <Glyph.arrow size={14} />
             </Link>
           </div>
           {docs ? <DocLedger docs={docs.documents} /> : <Loading />}
 
+          {/* ---- Top categories ---- */}
           {docs && docs.by_category.length > 0 && (
             <>
               <div className="section-title">Категории услуг · топ {docs.by_category.length}</div>
-              <div className="panel pad"><CategoryBars cats={docs.by_category} /></div>
+              <Reveal>
+                <div className="dsh-card"><CategoryBars cats={docs.by_category} /></div>
+              </Reveal>
             </>
           )}
         </>

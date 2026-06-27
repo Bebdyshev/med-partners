@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useEffect, useState } from "react";
 import type { Tier } from "@/lib/types";
 import { TIER_LABELS } from "@/lib/types";
 import { fmtKzt } from "@/lib/api";
@@ -46,13 +47,19 @@ export function PriceTiers({ tiers }: { tiers: Tier[] }) {
   );
 }
 
-/** Confidence meter — the product's signature readout. score in [0,1]. */
+/** Confidence meter — the product's signature readout. score in [0,1].
+ *  The fill grows from 0 on mount, so the bar "reads out" its confidence. */
 export function Meter({ score, showVal = true }: { score: number; showVal?: boolean }) {
   const pct = Math.max(0, Math.min(1, score)) * 100;
   const band = score >= 0.85 ? "hi" : score >= 0.6 ? "mid" : "lo";
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setW(pct));
+    return () => cancelAnimationFrame(id);
+  }, [pct]);
   return (
     <span className={`meter ${band}`} role="meter" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
-      <span className="track"><span className="fill" style={{ width: `${pct}%` }} /></span>
+      <span className="track"><span className="fill" style={{ width: `${w}%` }} /></span>
       {showVal && <span className="val">{score.toFixed(2)}</span>}
     </span>
   );

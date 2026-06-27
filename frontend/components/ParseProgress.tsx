@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { DocumentRow } from "@/lib/types";
 import { Glyph } from "./Icon";
 import { StatusBadge } from "./Bits";
+import { Counter } from "./Motion";
 
 const STAGES = [
   { lbl: "Чтение файла", det: "формат · дедуп по хэшу" },
@@ -25,6 +26,12 @@ const METHOD_RU: Record<string, string> = {
   pdf_text: "PDF · текст", pdf_ocr: "PDF · OCR", pdf_table: "PDF · таблица", xlsx: "Excel", docx: "Word", xls: "Excel",
 };
 
+// deterministic console-row geometry (purely cosmetic skeleton stream)
+const TROWS = [
+  { w: 72, st: "hi" }, { w: 54, st: "hi" }, { w: 64, st: "mid" },
+  { w: 46, st: "hi" }, { w: 60, st: "lo" }, { w: 50, st: "mid" },
+];
+
 export default function ParseProgress({
   file,
   onComplete,
@@ -36,9 +43,26 @@ export default function ParseProgress({
 }) {
   // active stage index; stages with idx < stage are "done", == stage is "active"
   const [stage, setStage] = useState(0);
+  const [pctTarget, setPctTarget] = useState(4);
   const [pct, setPct] = useState(4);
   const [skeleton, setSkeleton] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
+
+  // smooth percentage readout — eases the displayed value toward its target,
+  // so the number visibly climbs like an instrument rather than jumping.
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      setPct((p) => {
+        const d = pctTarget - p;
+        if (Math.abs(d) < 0.5) return pctTarget;
+        raf = requestAnimationFrame(tick);
+        return p + d * 0.09;
+      });
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [pctTarget]);
 
   useEffect(() => {
     let alive = true;
@@ -65,8 +89,8 @@ export default function ParseProgress({
       for (const s of seq) {
         if (!alive) return;
         setStage(s.i);
-        setPct(s.pct);
-        if (s.i >= 1) setSkeleton((n) => Math.min(5, n + 2));
+        setPctTarget(s.pct);
+        if (s.i >= 1) setSkeleton((n) => Math.min(TROWS.length, n + 2));
         await sleep(s.ms);
       }
 
@@ -88,14 +112,14 @@ export default function ParseProgress({
       if (!r.created.length && r.skipped_duplicates) {
         setResult({ kind: "dup" });
         setStage(5);
-        setPct(100);
+        setPctTarget(100);
         return;
       }
 
       const methods = Object.entries(doc?.method_summary || {}) as [string, number][];
       const items = methods.reduce((a, [, n]) => a + n, 0);
       setStage(5);
-      setPct(100);
+      setPctTarget(100);
       setResult({
         kind: "done",
         items,
@@ -113,48 +137,54 @@ export default function ParseProgress({
   const sizeKb = file.size < 1024 * 1024
     ? `${Math.max(1, Math.round(file.size / 1024))} КБ`
     : `${(file.size / 1024 / 1024).toFixed(1)} МБ`;
+  const done = pct >= 99.5;
 
   return (
-    <div className="pp" role="status" aria-live="polite">
-      <div className="pp-head">
-        <div className="pp-file">
+    <div className="pipe-pp" role="status" aria-live="polite">
+      <div className="pipe-pp-head">
+        <div className="pipe-pp-chip">
           <Glyph.docs size={18} />
           <span className="ext">{ext}</span>
         </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="pp-name">{file.name}</div>
-          <div className="pp-meta">{sizeKb} · разбор прайс-листа</div>
+        <div className="pipe-pp-id">
+          <div className="pipe-pp-name">{file.name}</div>
+          <div className="pipe-pp-meta">{sizeKb} · разбор прайс-листа</div>
         </div>
-        <div className="pp-pct num">{pct}%</div>
+        <div className="pipe-pp-pct">
+          <b>{Math.round(pct)}%</b>
+          <div className="l">{result ? "готово" : "обработка"}</div>
+        </div>
       </div>
 
-      <div className="pp-bar"><i style={{ width: `${pct}%` }} /></div>
+      <div className={`pipe-pp-bar ${done ? "full" : ""}`}><i style={{ width: `${pct}%` }} /></div>
 
-      <div className="pp-stages">
+      <div className="pipe-pp-stages">
         {STAGES.map((s, i) => {
           const cls = i < stage ? "done" : i === stage ? "active" : "";
           return (
-            <div className={`pp-stage ${cls}`} key={s.lbl}>
+            <div className={`pipe-stage ${cls}`} key={s.lbl}>
               <span className="mk">
-                {i < stage ? <Glyph.check size={13} /> : i === stage ? <span className="pulse" /> : <span style={{ width: 6, height: 6, borderRadius: 50, background: "currentColor" }} />}
+                {i < stage ? <Glyph.check size={13} /> : i === stage ? <span className="dot" /> : i + 1}
               </span>
-              <span className="lbl">{s.lbl}</span>
-              <span className="det">{s.det}</span>
+              <div>
+                <div className="lbl">{s.lbl}</div>
+                <div className="det">{s.det}</div>
+              </div>
             </div>
           );
         })}
       </div>
 
-      {/* extraction shimmer — placeholders while rows are being read */}
+      {/* live extraction console — rows materialising while reading */}
       {!result && (
-        <div className="pp-ticker">
-          <div className="cap">Поток извлечения</div>
-          <div className="pp-rows">
-            {Array.from({ length: skeleton }).map((_, i) => (
-              <div className="pp-rowline" key={i}>
-                <span className="nm" style={{ height: 9, borderRadius: 4, background: "var(--paper-3)", width: `${70 - i * 8}%` }} />
-                <span className="px" style={{ height: 9, width: 54, borderRadius: 4, background: "var(--paper-3)" }} />
-                <span className="st" style={{ background: "var(--rule-strong)" }} />
+        <div className="pipe-pp-ticker">
+          <div className="pipe-ticker-cap"><span className="pipe-live" /> Поток извлечения</div>
+          <div className="pipe-ticker-rows">
+            {TROWS.slice(0, skeleton).map((r, i) => (
+              <div className="pipe-trow" key={i}>
+                <span className="nm shimmer" style={{ width: `${r.w}%` }} />
+                <span className="px shimmer" />
+                <span className={`st ${r.st}`} />
               </div>
             ))}
           </div>
@@ -162,29 +192,30 @@ export default function ParseProgress({
       )}
 
       {result?.kind === "done" && (
-        <div className="pp-result">
-          <div className="grid">
-            <div className="pp-rcell">
+        <div className="pipe-result">
+          <div className="pipe-rcells">
+            <div className="pipe-rcell hero">
               <div className="k">Извлечено позиций</div>
-              <div className="v num">{result.items.toLocaleString("ru-RU")}</div>
+              <div className="v"><Counter value={result.items} /></div>
             </div>
-            <div className="pp-rcell">
+            <div className="pipe-rcell">
               <div className="k">Метод извлечения</div>
-              <div className="row" style={{ gap: 6, marginTop: 8 }}>
+              <div className="methods">
                 {result.methods.length === 0 ? <span className="muted">—</span> : result.methods.map(([m, n]) => (
                   <span className="badge" key={m}>{METHOD_RU[m] || m} · {n}</span>
                 ))}
               </div>
             </div>
-            <div className="pp-rcell">
+            <div className="pipe-rcell">
               <div className="k">Статус документа</div>
-              <div style={{ marginTop: 10 }}><StatusBadge status={result.status} /></div>
+              <div className="stat"><StatusBadge status={result.status} /></div>
             </div>
           </div>
-          <div className="row">
-            <span className="row" style={{ gap: 8, color: "var(--ok)", fontSize: 14 }}>
-              <Glyph.check size={16} /> Готово — документ в реестре
-            </span>
+          <div className="pipe-note ok">
+            <span className="ic"><Glyph.check size={15} /></span>
+            Готово — документ в реестре.
+          </div>
+          <div className="pipe-foot">
             <div className="spacer" />
             <a className="btn small" href="/review"><Glyph.review size={13} /> В очередь верификации</a>
             <button className="btn small primary" onClick={onClose}><Glyph.upload size={13} /> Загрузить ещё</button>
@@ -193,11 +224,12 @@ export default function ParseProgress({
       )}
 
       {result?.kind === "dup" && (
-        <div className="pp-result">
-          <span className="row" style={{ gap: 8, color: "var(--amber)", fontSize: 14 }}>
-            <Glyph.layers size={16} /> Дубликат — файл уже есть в базе (дедуп по хэшу).
-          </span>
-          <div className="row">
+        <div className="pipe-result">
+          <div className="pipe-note warn">
+            <span className="ic"><Glyph.layers size={15} /></span>
+            Дубликат — файл уже есть в базе (дедуп по хэшу).
+          </div>
+          <div className="pipe-foot">
             <div className="spacer" />
             <button className="btn small primary" onClick={onClose}>Загрузить другой</button>
           </div>
@@ -205,12 +237,12 @@ export default function ParseProgress({
       )}
 
       {result?.kind === "error" && (
-        <div className="pp-result">
-          <div className="panel pad" style={{ borderColor: "var(--oxblood)", color: "var(--oxblood)", boxShadow: "none" }}>
+        <div className="pipe-result">
+          <div className="pipe-err">
             <b>Не удалось обработать файл.</b>
-            <div className="mono" style={{ fontSize: 12.5, marginTop: 6 }}>{result.msg}</div>
+            <div className="msg">{result.msg}</div>
           </div>
-          <div className="row">
+          <div className="pipe-foot">
             <div className="spacer" />
             <button className="btn small" onClick={onClose}>Закрыть</button>
           </div>
