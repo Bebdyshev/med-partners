@@ -1,4 +1,4 @@
-from app.normalization.code_match import CodeIndex, normalize_code
+from app.normalization.code_match import CodeIndex, find_code_in_text, normalize_code
 
 
 def test_normalize_code_canonical():
@@ -15,6 +15,27 @@ def test_normalize_code_none():
     assert normalize_code(None) is None
     assert normalize_code("U1.1") is None        # clinic-local code, not a tariff code
     assert normalize_code("прием врача") is None
+
+
+def test_normalize_code_cyrillic_homoglyph():
+    # lab scans write the prefix letter with a Cyrillic lookalike -> canonical Latin
+    assert normalize_code("В06.457.006") == "B06.457.006"   # Cyrillic В
+    assert normalize_code("В06.457.006.65") == "B06.457.006"
+
+
+def test_find_code_in_text_cyrillic():
+    # code buried in the service name with a Cyrillic homoglyph prefix
+    assert find_code_in_text("Слива, f255 В06.457.006.65") == "B06.457.006"
+
+
+def test_find_code_in_text_latin():
+    assert find_code_in_text("Глюкоза A09.005.022 сыворотка") == "A09.005.022"
+
+
+def test_find_code_in_text_no_code():
+    assert find_code_in_text("нет кода тут") is None
+    assert find_code_in_text(None) is None
+    assert find_code_in_text("47 Витамин В6 СН.001.103 сыв") is None
 
 
 def test_code_index_lookup():

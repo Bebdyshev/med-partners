@@ -12,17 +12,35 @@ from __future__ import annotations
 
 import re
 
-# canonical dictionary code form, e.g. A02.004.000
-_CANON = re.compile(r"[A-Za-z]\d{2}\.\d{3}\.\d{3}")
+# Lab scans write the tariff code with Cyrillic homoglyphs (e.g. «В06.457.006»);
+# map those lookalike letters to their Latin equivalents so codes resolve.
+_HOMOGLYPH = str.maketrans("АВСЕНКМОРТХ", "ABCEHKMOPTX")
+
+# canonical dictionary code form, e.g. A02.004.000. Accept both Latin and the
+# Cyrillic homoglyph letters in the prefix so embedded codes match pre-translation.
+_CANON = re.compile(r"[A-Za-zАВСЕНКМОРТХавсенкмортх]\d{2}\.\d{3}\.\d{3}")
 
 
 def normalize_code(raw: str | None) -> str | None:
     """Return the canonical 3-group code embedded in `raw`, or None."""
     if not raw:
         return None
-    s = re.sub(r"[^A-Za-z0-9.]", "", str(raw)).upper()
+    s = re.sub(r"[^A-Za-z0-9.]", "", str(raw).translate(_HOMOGLYPH)).upper()
     m = _CANON.search(s)
     return m.group(0) if m else None
+
+
+def find_code_in_text(text: str | None) -> str | None:
+    """Find the FIRST dictionary code embedded in free text, canonicalized.
+
+    Lab price lists bury the tariff code inside the service name (often with
+    Cyrillic homoglyphs), so search the raw string and return the canonical
+    Latin form (via `normalize_code`), or None.
+    """
+    if not text:
+        return None
+    m = _CANON.search(str(text))
+    return normalize_code(m.group(0)) if m else None
 
 
 class CodeIndex:
