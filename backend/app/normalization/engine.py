@@ -156,8 +156,14 @@ class Matcher:
                                 s.score = min(s.score, conf * 0.5)
                         out[qi] = sorted(lst, key=lambda s: s.score, reverse=True)
                     else:
-                        for s in lst:  # no candidate matched -> drive below the floor
-                            s.score = min(s.score, settings.llm_review_floor - 0.01)
+                        # LLM found no exact match: cap below auto so it can't auto-match,
+                        # but keep the embedding ranking — a still-plausible top candidate
+                        # (>= review floor) lands in the review queue with suggestions; the
+                        # rest fall below the floor and become unmatched.
+                        cap = settings.llm_auto_threshold - 0.01
+                        for s in lst:
+                            s.score = min(s.score, cap)
+                        out[qi] = sorted(lst, key=lambda s: s.score, reverse=True)
             return out
 
         # optional cross-encoder rerank of the shortlist (offline; high precision)

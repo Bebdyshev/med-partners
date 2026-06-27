@@ -34,8 +34,8 @@ class Settings(BaseSettings):
     # LLM reranker — an OpenAI chat model judges the embedding shortlist (no local ML).
     use_llm_rerank: bool = True
     llm_model: str = "gpt-4o-mini"
-    llm_auto_threshold: float = 0.85   # LLM confidence -> auto (precision-first; ~79% on the name-only eval)
-    llm_review_floor: float = 0.50     # LLM confidence -> review (else unmatched)
+    llm_auto_threshold: float = 0.70   # LLM-confirmed match -> auto
+    llm_review_floor: float = 0.65     # LLM rejected but candidate still plausible (cosine) -> review; else unmatched
     llm_rerank_band_lo: float = 0.40   # only judge items whose top embedding score >= this
     llm_max_workers: int = 12          # concurrency for batch judging
 
