@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useFetch } from "@/lib/useFetch";
@@ -14,7 +14,19 @@ type Draft = { canonical_name: string; category: string; icd_code: string };
 export default function ServicesPage() {
   const [q, setQ] = useState("");
   const [applied, setApplied] = useState("");
-  const { data, error, loading, reload } = useFetch(() => api.services({ q: applied || undefined, limit: 200 }), [applied]);
+  const [category, setCategory] = useState<string | null>(null);
+  useEffect(() => {
+    setCategory(new URLSearchParams(window.location.search).get("category"));
+  }, []);
+  const { data, error, loading, reload } = useFetch(
+    () => api.services({ q: applied || undefined, category: category || undefined, limit: 200 }),
+    [applied, category]
+  );
+
+  function clearCategory() {
+    setCategory(null);
+    window.history.replaceState({}, "", "/services");
+  }
 
   const [editId, setEditId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({ canonical_name: "", category: "", icd_code: "" });
@@ -60,7 +72,12 @@ export default function ServicesPage() {
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="фильтр по названию услуги…" />
           <button className="btn" style={{ boxShadow: "none", borderLeft: "1px solid var(--rule-strong)" }}>Фильтр</button>
         </form>
-        {data && <span className="disc-reg-count">{data.length} {applied ? "найдено" : "позиций"}</span>}
+        {category && (
+          <button className="chip on" onClick={clearCategory} title="Сбросить фильтр категории">
+            Категория: {category} <Glyph.x size={12} />
+          </button>
+        )}
+        {data && <span className="disc-reg-count">{data.length} {applied || category ? "найдено" : "позиций"}</span>}
       </div>
 
       <div>

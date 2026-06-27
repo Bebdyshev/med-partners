@@ -125,7 +125,11 @@
 .dsh-dhead { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
 .dsh-idx { font-family: var(--mono); font-size: 10.5px; color: var(--muted); width: 22px; flex: none; font-variant-numeric: tabular-nums; }
 .dsh-dname { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; min-width: 0; }
+  text-overflow: ellipsis; min-width: 0; color: var(--ink); }
+a.dsh-dname { display: inline-flex; align-items: center; gap: 5px; transition: color .12s var(--ease); }
+a.dsh-dname:hover { color: var(--accent); }
+.dsh-open { flex: none; opacity: 0; color: var(--muted); transition: opacity .12s var(--ease); }
+a.dsh-dname:hover .dsh-open { opacity: 1; color: var(--accent); }
 .dsh-dpart { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .dsh-mtag { font-family: var(--mono); font-size: 10px; letter-spacing: .02em; padding: 2px 8px;
   border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-2); background: var(--paper-2); white-space: nowrap; }
@@ -143,6 +147,10 @@
 /* ---------- Top categories ---------------------------------- */
 .dsh-cats { display: grid; gap: 11px; }
 .dsh-cat { display: grid; grid-template-columns: 18px 168px 1fr 64px; align-items: center; gap: 14px; font-size: 13px; }
+a.dsh-cat { color: inherit; text-decoration: none; padding: 4px 8px; margin: -4px -8px; border-radius: var(--radius-s);
+  transition: background .12s var(--ease); }
+a.dsh-cat:hover { background: var(--flag); }
+a.dsh-cat:hover .nm { color: var(--accent); }
 .dsh-cat .rk { font-family: var(--mono); font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .dsh-cat .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
 .dsh-cat .track { height: 11px; border-radius: 999px; background: var(--paper-3); overflow: hidden; }

@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import Link from "next/link";
 import type { DashboardDocs, DocBreakdown } from "@/lib/types";
 import { useInView } from "@/lib/motion";
 import { Counter } from "@/components/Motion";
@@ -142,7 +143,10 @@ function LedgerRow({ d, idx }: { d: DocBreakdown; idx: number }) {
     <div className="dsh-doc" ref={ref}>
       <div className="dsh-dhead">
         <span className="dsh-idx">{String(idx + 1).padStart(2, "0")}</span>
-        <span className="dsh-dname" title={d.source_filename}>{d.source_filename}</span>
+        <a className="dsh-dname" href={`/api/documents/${d.id}/file`} target="_blank" rel="noopener noreferrer" title={`Открыть исходник: ${d.source_filename}`}>
+          {d.source_filename}
+          <svg className="dsh-open" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M7 17 17 7M9 7h8v8" /></svg>
+        </a>
         <span className="badge">{FORMAT_LABEL[d.file_format] || d.file_format}</span>
         {d.partner_name && <span className="dsh-dpart">{d.partner_name}</span>}
         {methods.map(([m, v]) => (
@@ -184,14 +188,14 @@ export function CategoryBars({ cats }: { cats: DashboardDocs["by_category"] }) {
   return (
     <div className="dsh-cats" ref={ref}>
       {cats.map((c, i) => (
-        <div className="dsh-cat" key={c.category}>
+        <Link className="dsh-cat" href={`/services?category=${encodeURIComponent(c.category)}`} key={c.category} title={`Открыть услуги: ${c.category}`}>
           <span className="rk">{String(i + 1).padStart(2, "0")}</span>
-          <span className="nm" title={c.category}>{c.category}</span>
+          <span className="nm">{c.category}</span>
           <span className="track">
             <i style={{ width: inView ? `${(c.items / max) * 100}%` : 0, transitionDelay: `${i * 55}ms` }} />
           </span>
           <span className="ct">{fmt(c.items)}</span>
-        </div>
+        </Link>
       ))}
     </div>
   );

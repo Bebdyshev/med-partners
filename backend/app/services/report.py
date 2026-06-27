@@ -100,9 +100,12 @@ def compute_document_breakdown() -> dict:
             for m, c in mdict.items():
                 by_method[m] = by_method.get(m, 0) + c
 
+        # clean dictionary categories (Service.category) over matched items — raw_category
+        # is noisy (section headers, biomaterials like "сыв.", spacing dupes).
         cats = db.execute(
-            select(PriceItem.raw_category, func.count())
-            .group_by(PriceItem.raw_category)
+            select(Service.category, func.count())
+            .join(PriceItem, PriceItem.service_id == Service.id)
+            .group_by(Service.category)
             .order_by(func.count().desc())
         ).all()
         by_category = [{"category": c, "items": n} for c, n in cats if c and c.strip()][:10]

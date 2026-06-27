@@ -19,7 +19,7 @@
   --chart-auto:   #2742f0;
   --chart-auto-2: #5a72ff;
   --accent-ink:   #cf3408;
-  --accent-wash:  #fff0ea;
+  --accent-wash:  #f4f5f8;
 
   --amber:        #b9751b;   /* review / pending */
   --amber-wash:   #fdf4e6;
@@ -449,6 +449,8 @@ select.input { cursor: pointer; }
 .searchbar input { flex: 1; border: none; outline: none; background: transparent; padding: 14px 14px;
   font-size: 16px; font-family: var(--font-body); color: var(--ink); min-width: 0; }
 .searchbar input::placeholder { color: var(--muted); }
+.searchbar input:focus-visible, .searchbar input:focus,
+.field input:focus-visible, .field input:focus { box-shadow: none; border-radius: 0; }
 .searchbar .sb-btn { border-radius: 0; box-shadow: none; padding: 0 24px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -494,11 +496,11 @@ select.input { cursor: pointer; }
   mask-image: radial-gradient(120% 90% at 72% 28%, #000 18%, transparent 72%);
   -webkit-mask-image: radial-gradient(120% 90% at 72% 28%, #000 18%, transparent 72%);
   opacity: .5; }
-.ambient-wash { position: absolute; border-radius: 50%; filter: blur(60px); opacity: .5; will-change: transform; }
+.ambient-wash { position: absolute; border-radius: 50%; filter: blur(60px); opacity: .22; will-change: transform; }
 .ambient-wash.a { width: 46vw; height: 46vw; top: -16vw; right: -10vw;
-  background: radial-gradient(circle at 40% 40%, rgba(255,71,19,.20), transparent 62%); }
+  background: radial-gradient(circle at 40% 40%, rgba(255,71,19,.12), transparent 62%); }
 .ambient-wash.b { width: 40vw; height: 40vw; bottom: -18vw; left: -8vw;
-  background: radial-gradient(circle at 50% 50%, rgba(39,66,240,.14), transparent 64%); }
+  background: radial-gradient(circle at 50% 50%, rgba(39,66,240,.10), transparent 64%); }
 
 /* ---- marquee ---- */
 .marquee { overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
