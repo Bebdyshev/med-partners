@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.config import settings
 from app.models import PriceDocument
 from app.schemas.dto import DocumentOut
 from app.services.report import compute_document_breakdown, compute_partner_breakdown, compute_report
@@ -23,6 +24,22 @@ _MEDIA = {
     "xls": "application/vnd.ms-excel",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+
+
+def _resolve_stored(stored_path: str) -> Path | None:
+    """Locate the original upload. `stored_path` may be an absolute path from another
+    host (DB restored from a dump) — fall back to re-rooting the `raw_files/<uuid>/<file>`
+    tail under the configured storage dir so previews work on the server too."""
+    p = Path(stored_path)
+    if p.is_file():
+        return p
+    s = stored_path.replace("\\", "/")
+    idx = s.rfind("raw_files/")
+    if idx != -1:
+        cand = settings.raw_files_dir / s[idx + len("raw_files/"):]
+        if cand.is_file():
+            return cand
+    return None
 
 
 @router.get("/documents", response_model=list[DocumentOut])
@@ -54,8 +71,8 @@ def get_document_file(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     doc = db.get(PriceDocument, doc_id)
     if doc is None:
         raise HTTPException(404, "document not found")
-    path = Path(doc.stored_path)
-    if not path.is_file():
+    path = _resolve_stored(doc.stored_path)
+    if path is None:
         raise HTTPException(404, "stored file missing")
     fmt = doc.file_format.value if hasattr(doc.file_format, "value") else str(doc.file_format)
     media = _MEDIA.get(fmt) or mimetypes.guess_type(doc.source_filename)[0] or "application/octet-stream"
@@ -103,8 +120,8 @@ def document_preview(doc_id: uuid.UUID, ref: str = Query("", description="source
     doc = db.get(PriceDocument, doc_id)
     if doc is None:
         raise HTTPException(404, "document not found")
-    path = Path(doc.stored_path)
-    if not path.is_file():
+    path = _resolve_stored(doc.stored_path)
+    if path is None:
         raise HTTPException(404, "stored file missing")
     fmt = doc.file_format.value if hasattr(doc.file_format, "value") else str(doc.file_format)
     kv = _ref_kv(ref)
