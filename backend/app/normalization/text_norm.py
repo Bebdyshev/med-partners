@@ -63,3 +63,57 @@ def normalize(text: str) -> str:
     tokens = [_SYNONYMS.get(w, w) for w in t.split()]
     tokens = [w for w in tokens if w not in _STOPWORDS]
     return " ".join(tokens).strip()
+
+
+# Search-only abbreviation lexicon. Extends _ABBREV with high-value lab/imaging
+# pairs the registry uses as *canonical* names (so the full form finds the
+# abbreviated canonical and vice-versa). Kept separate from _ABBREV so the tuned
+# normalization pipeline is untouched.
+SEARCH_ABBREV = {
+    **_ABBREV,
+    "оак": "общий анализ крови",
+    "оам": "общий анализ мочи",
+    "соэ": "скорость оседания эритроцитов",
+    "пцр": "полимеразная цепная реакция",
+    "ифа": "иммуноферментный анализ",
+    "ихл": "иммунохемилюминесцентный анализ",
+    "ттг": "тиреотропный гормон",
+    "пса": "простатический специфический антиген",
+    "рг": "рентгенография",
+    "флг": "флюорография",
+    "эгдс": "эзофагогастродуоденоскопия",
+    "огк": "органов грудной клетки",
+    "алт": "аланинаминотрансфераза",
+    "аст": "аспартатаминотрансфераза",
+    "хгч": "хорионический гонадотропин",
+}
+
+
+def expand_search_terms(q: str, limit: int = 6) -> list[str]:
+    """Equivalent query forms via the abbreviation lexicon, in BOTH directions.
+
+    Forward: "оак" -> "общий анализ крови". Reverse: "общий анализ крови" -> "оак"
+    (the key direction — many canonicals are stored as abbreviations). The original
+    query is always first. Used only by full-text search, NOT by normalize()."""
+    q = (q or "").strip()
+    if not q:
+        return []
+    ql = q.lower()
+    forms = [q]
+    seen = {ql}
+
+    def _add(form: str) -> None:
+        if form and form not in seen:
+            seen.add(form)
+            forms.append(form)
+
+    for abbr, full in SEARCH_ABBREV.items():
+        if len(forms) >= limit:
+            break
+        # forward: whole-token abbreviation -> full phrase
+        if re.search(rf"(?<!\w){re.escape(abbr)}(?!\w)", ql):
+            _add(re.sub(rf"(?<!\w){re.escape(abbr)}(?!\w)", full, ql))
+        # reverse: full phrase present -> abbreviation
+        if full in ql:
+            _add(ql.replace(full, abbr))
+    return forms

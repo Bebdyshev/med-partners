@@ -79,11 +79,20 @@ class DocumentOut(BaseModel):
 class UnmatchedOut(BaseModel):
     item_id: uuid.UUID
     raw_name: str
+    raw_code: str | None = None
     raw_category: str | None
     partner_id: uuid.UUID
+    partner_name: str | None = None
+    # provenance — so the operator can open the source and cross-check (ТЗ 4.4)
+    document_id: uuid.UUID | None = None
+    source_filename: str | None = None
+    file_format: str | None = None
+    year: int | None = None
+    source_ref: str | None = None  # sheet=..;row=.. | page=N;vision | table=0;row=..
     match_status: str
     match_score: float | None
     extraction_method: str | None
+    tiers: list[TierOut] = []
     suggestions: list[dict]
 
 

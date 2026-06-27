@@ -30,9 +30,24 @@ export type DocumentRow = {
 
 export type Suggestion = { service_id: string; canonical_name: string; score: number };
 export type Unmatched = {
-  item_id: string; raw_name: string; raw_category: string | null; partner_id: string;
+  item_id: string; raw_name: string; raw_code?: string | null; raw_category: string | null; partner_id: string;
+  partner_name?: string | null; document_id?: string | null; source_filename?: string | null;
+  file_format?: string | null; year?: number | null; source_ref?: string | null;
   match_status: string; match_score: number | null; extraction_method: string | null;
-  suggestions: Suggestion[];
+  tiers: Tier[]; suggestions: Suggestion[];
+};
+
+export type AiCompare = {
+  choice: number; confidence: number; reason: string;
+  best: { service_id: string; canonical_name: string; score: number } | null;
+  candidates: Suggestion[];
+};
+
+export type DocPreview = {
+  kind: "table" | "unsupported";
+  label?: string; target?: number;
+  rows?: { n: number; cells: string[] }[];
+  error?: string;
 };
 
 export type SearchResult = {
@@ -60,6 +75,16 @@ export type DashboardDocs = {
   documents: DocBreakdown[];
   by_method: Record<string, number>;
   by_category: { category: string; items: number }[];
+};
+
+export type PartnerBreakdown = {
+  id: string; code: string; display_name: string; legal_name: string | null; city: string | null;
+  is_active: boolean; items: number; auto: number; review: number; unmatched: number;
+  auto_pct: number; documents: number; latest_year: number | null; formats: string[];
+};
+export type DashboardPartners = {
+  partners: PartnerBreakdown[];
+  totals: { partners: number; active: number; items: number; avg_auto_pct: number; with_pricelist: number };
 };
 
 export const TIER_LABELS: Record<string, string> = {

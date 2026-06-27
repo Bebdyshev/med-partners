@@ -1,5 +1,4 @@
 "use client";
-import type { CSSProperties } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api, fmtKzt } from "@/lib/api";
@@ -21,18 +20,78 @@ function priceNum(p: PartnerPrice): number {
   const n = t ? parseFloat(t.amount_kzt) : NaN;
   return Number.isFinite(n) ? n : NaN;
 }
+const yearOf = (p: PartnerPrice) => (p.effective_date ? p.effective_date.slice(0, 4) : null);
+function visitKind(raw: string): "Первичный приём" | "Повторный приём" | null {
+  if (/первичн/i.test(raw)) return "Первичный приём";
+  if (/повторн/i.test(raw)) return "Повторный приём";
+  return null;
+}
+const finite = (xs: number[]) => xs.filter((n) => Number.isFinite(n));
+
+type Reco = { kind: "good" | "warn" | "info"; text: string };
 
 export default function ServiceDetail({ params }: { params: { id: string } }) {
   const { id } = params;
   const name = useSearchParams().get("name") || "Услуга справочника";
   const { data, error, loading } = useFetch(() => api.servicePartners(id), [id]);
 
-  const rows = data ?? [];
-  const nums = rows.map(priceNum);
-  const valid = nums.filter((n) => Number.isFinite(n)) as number[];
-  const min = valid.length ? Math.min(...valid) : 0;
-  const max = valid.length ? Math.max(...valid) : 0;
+  const rows = (data ?? []).slice().sort((a, b) => (priceNum(a) || Infinity) - (priceNum(b) || Infinity));
+  const nums = finite(rows.map(priceNum));
+  const min = nums.length ? Math.min(...nums) : 0;
+  const max = nums.length ? Math.max(...nums) : 0;
   const ratio = min > 0 ? max / min : 0;
+  const median = nums.length ? [...nums].sort((a, b) => a - b)[Math.floor(nums.length / 2)] : 0;
+
+  // year comparison
+  const byYear = new Map<string, number[]>();
+  for (const p of rows) {
+    const y = yearOf(p);
+    const n = priceNum(p);
+    if (!y || !Number.isFinite(n)) continue;
+    if (!byYear.has(y)) byYear.set(y, []);
+    byYear.get(y)!.push(n);
+  }
+  const years = [...byYear.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+  // first / repeat visit split (consultation services)
+  const hasP = rows.some((p) => visitKind(p.raw_name) === "Первичный приём");
+  const hasR = rows.some((p) => visitKind(p.raw_name) === "Повторный приём");
+  const split = hasP && hasR;
+  const groups: [string | null, PartnerPrice[]][] = split
+    ? ([
+        ["Первичный приём", rows.filter((p) => visitKind(p.raw_name) === "Первичный приём")],
+        ["Повторный приём", rows.filter((p) => visitKind(p.raw_name) === "Повторный приём")],
+        ["Без уточнения", rows.filter((p) => !visitKind(p.raw_name))],
+      ] as [string, PartnerPrice[]][]).filter(([, g]) => g.length)
+    : [[null, rows]];
+
+  // smart recommendations
+  const recos: Reco[] = [];
+  if (rows.length) {
+    const cheapest = rows[0];
+    const cn = priceNum(cheapest);
+    const savePct = max > min ? Math.round((1 - min / max) * 100) : 0;
+    recos.push({
+      kind: "good",
+      text: `Лучшая цена — ${cheapest.partner_name}: ${fmtKzt(cn)}${savePct >= 5 ? ` — на ${savePct}% дешевле самой дорогой (${fmtKzt(max)})` : ""}.`,
+    });
+    const maxYear = years.length ? years[years.length - 1][0] : null;
+    const cYear = yearOf(cheapest);
+    if (maxYear && cYear && cYear < maxYear) {
+      const fresh = rows.find((p) => yearOf(p) === maxYear);
+      recos.push({
+        kind: "warn",
+        text: `У самой дешёвой клиники прайс за ${cYear}; свежее всего — ${fresh?.partner_name} (${maxYear}). Стоит уточнить актуальность цены.`,
+      });
+    }
+    if (cheapest.is_verified) recos.push({ kind: "info", text: "Цена самой дешёвой клиники выверена вручную." });
+    recos.push({
+      kind: "info",
+      text: ratio < 1.05
+        ? "Цены на рынке почти не отличаются — выбирайте по удобству."
+        : `Разброс цен ×${ratio.toFixed(1)}, медиана ${fmtKzt(median)}.`,
+    });
+  }
 
   return (
     <>
@@ -47,10 +106,7 @@ export default function ServiceDetail({ params }: { params: { id: string } }) {
 
       {loading && <Loading />}
       {error && <ErrorNote error={error} />}
-
-      {data && data.length === 0 && (
-        <div className="empty">Пока ни одна клиника не сопоставлена с этой услугой.</div>
-      )}
+      {data && data.length === 0 && <div className="empty">Пока ни одна клиника не сопоставлена с этой услугой.</div>}
 
       {data && data.length > 0 && (
         <>
@@ -69,73 +125,117 @@ export default function ServiceDetail({ params }: { params: { id: string } }) {
                 <div className="disc-sum-v">{fmtKzt(max)}</div>
               </div>
               <div className="disc-sum-spread">
-                <div className="disc-spread-v">
-                  {ratio >= 1.05 ? `разброс ×${ratio.toFixed(1)}` : "цены сопоставимы"}
-                </div>
-                <div className="disc-spread-k">
-                  {max > min ? `разница ${fmtKzt(max - min)} между клиниками` : "одна цена на рынке"}
-                </div>
+                <div className="disc-spread-v">{ratio >= 1.05 ? `разброс ×${ratio.toFixed(1)}` : "цены сопоставимы"}</div>
+                <div className="disc-spread-k">{max > min ? `разница ${fmtKzt(max - min)} между клиниками` : "одна цена на рынке"}</div>
               </div>
             </div>
           </Reveal>
 
-          <div className="disc-cmp-head">
-            <div className="disc-cmp-title">Сравнение цен — дешевле сверху</div>
-            <div className="disc-cmp-hint">цена для граждан РК · длина полосы = относительно максимума</div>
-          </div>
+          {/* smart recommendations */}
+          {recos.length > 0 && (
+            <Reveal dir="up">
+              <div className="svc-recos">
+                {recos.map((r, i) => (
+                  <div className={`svc-reco ${r.kind}`} key={i}><span className="dot" />{r.text}</div>
+                ))}
+              </div>
+            </Reveal>
+          )}
 
-          <div className="disc-cmp">
-            {data.map((p, i) => {
-              const res = residentPrice(p.tiers);
-              const n = nums[i];
-              const w = max > 0 && Number.isFinite(n) ? Math.max(0.04, n / max) : 0;
-              const best = i === 0;
-              const delta = Number.isFinite(n) ? n - min : NaN;
-              return (
-                <Reveal dir="up" delay={Math.min(i * 55, 600)} key={i}>
-                  <div className={`disc-cmprow ${best ? "disc-best" : ""}`}>
-                    <div className="disc-cmp-clinic">
-                      <div className="disc-cl-rank">{String(i + 1).padStart(2, "0")}</div>
-                      <div className="disc-cl-name">
-                        <Link href={`/partners/${p.partner_id}?name=${encodeURIComponent(p.partner_name)}`}>{p.partner_name}</Link>
-                        {best && <span className="disc-best-flag">ДЕШЕВЛЕ ВСЕХ</span>}
-                        {p.is_verified && <span className="disc-verified"><Glyph.check size={10} /> выверено</span>}
+          {/* year comparison */}
+          {years.length >= 2 && (
+            <>
+              <div className="disc-cmp-head">
+                <div className="disc-cmp-title">Цены по годам</div>
+                <div className="disc-cmp-hint">минимум за год · по датам прайс-листов</div>
+              </div>
+              <Reveal dir="up">
+                <div className="svc-years">
+                  {years.map(([y, arr], i) => {
+                    const ymin = Math.min(...arr);
+                    const prev = i > 0 ? Math.min(...years[i - 1][1]) : null;
+                    const trend = prev == null ? "" : ymin > prev ? "↑" : ymin < prev ? "↓" : "=";
+                    return (
+                      <div className="svc-year" key={y}>
+                        <div className="yy">прайс {y}</div>
+                        <div className="ym">от {fmtKzt(ymin)}</div>
+                        <div className="yn">
+                          {arr.length} {arr.length === 1 ? "клиника" : "клиник"}
+                          {trend && <span className={`yt ${ymin > (prev ?? 0) ? "up" : ymin < (prev ?? 0) ? "down" : ""}`}>{trend}</span>}
+                        </div>
                       </div>
-                      {p.city && <div className="disc-cl-city">{p.city}</div>}
-                    </div>
+                    );
+                  })}
+                </div>
+              </Reveal>
+            </>
+          )}
 
-                    <div className="disc-cmp-mid">
-                      <div className="disc-cmp-raw">
-                        <span className="disc-raw-q">в прайсе: </span>{p.raw_name}
-                      </div>
-                      <div className="disc-bar">
-                        <i style={{ "--w": w, "--d": `${Math.min(i * 55, 600) + 120}ms` } as CSSProperties} />
-                      </div>
-                    </div>
-
-                    <div className="disc-cmp-price">
-                      <div className="disc-price-v">{res ? fmtKzt(res.amount_kzt) : "—"}</div>
-                      <div className="disc-price-delta">
-                        {best ? "минимум" : Number.isFinite(delta) && delta > 0 ? `+${fmtKzt(delta)}` : "—"}
-                      </div>
-                    </div>
-
-                    {p.tiers.length > 0 && (
-                      <div className="disc-tiers" style={{ gridColumn: "1 / -1" }}>
-                        {p.tiers.map((t, j) => (
-                          <span key={j} className="disc-tierbadge" title={t.label_raw || ""}>
-                            <span className="disc-tb-k">{TIER_LABELS[t.tier_type] ?? t.tier_type}</span>
-                            <span className="disc-tb-v">{fmtKzt(t.amount_kzt)}</span>
-                          </span>
-                        ))}
-                        {p.effective_date && <span className="disc-tierbadge"><span className="disc-tb-k">прайс</span><span className="disc-tb-v">{p.effective_date.slice(0, 4)}</span></span>}
-                      </div>
-                    )}
+          {/* comparison tables (split by visit kind when applicable) */}
+          {groups.map(([label, g], gi) => {
+            const gmin = (() => { const v = finite(g.map(priceNum)); return v.length ? Math.min(...v) : 0; })();
+            return (
+              <div key={gi}>
+                <div className="disc-cmp-head">
+                  <div className="disc-cmp-title">{label ? `${label} · ${g.length}` : "Сравнение цен — дешевле сверху"}</div>
+                  <div className="disc-cmp-hint">цена для граждан РК · дешевле сверху</div>
+                </div>
+                <Reveal dir="up">
+                  <div className="panel">
+                    <table className="svc-table">
+                      <thead>
+                        <tr>
+                          <th className="r">#</th>
+                          <th>Клиника</th>
+                          <th>Позиция в прайсе</th>
+                          <th>Год</th>
+                          <th className="r">Цена, ₸</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {g.map((p, i) => {
+                          const res = residentPrice(p.tiers);
+                          const n = priceNum(p);
+                          const best = Number.isFinite(n) && n === gmin;
+                          const delta = Number.isFinite(n) ? n - gmin : NaN;
+                          const w = max > 0 && Number.isFinite(n) ? Math.max(4, (n / max) * 100) : 0;
+                          return (
+                            <tr className={best ? "svc-best" : ""} key={i}>
+                              <td className="r svc-rank">{String(i + 1).padStart(2, "0")}</td>
+                              <td className="svc-cl">
+                                <Link href={`/partners/${p.partner_id}?name=${encodeURIComponent(p.partner_name)}`}>{p.partner_name}</Link>
+                                {best && <span className="svc-bestflag">дешевле всех</span>}
+                                {p.is_verified && <span className="disc-verified"><Glyph.check size={10} /> выверено</span>}
+                                {p.city && <div className="svc-city">{p.city}</div>}
+                              </td>
+                              <td className="svc-raw" title={p.raw_name}>
+                                {p.raw_name}
+                                {p.tiers.length > 1 && (
+                                  <div className="svc-tiers">
+                                    {p.tiers.map((t, j) => (
+                                      <span className="svc-tier" key={j} title={t.label_raw || ""}>
+                                        {TIER_LABELS[t.tier_type] ?? t.tier_type}: {fmtKzt(t.amount_kzt)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="svc-year2">{yearOf(p) ?? "—"}</td>
+                              <td className="r svc-price">
+                                <div className="svc-pnum">{res ? fmtKzt(res.amount_kzt) : "—"}</div>
+                                <div className="svc-pbar"><i style={{ width: `${w}%` }} /></div>
+                                <div className="svc-pdelta">{best ? "минимум" : Number.isFinite(delta) && delta > 0 ? `+${fmtKzt(delta)}` : "—"}</div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </Reveal>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
         </>
       )}
     </>

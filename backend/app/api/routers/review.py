@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import uuid
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.deps import get_db
 from app.models import MatchDecision, PriceItem, Service, ServiceSynonym
 from app.models.enums import MatchAction, MatchMethod, MatchStatus
+from app.normalization import llm_rerank
 from app.normalization.dictionary import load_matcher_cached
-from app.schemas.dto import MatchRequest, UnmatchedOut
+from app.schemas.dto import MatchRequest, TierOut, UnmatchedOut
 
 router = APIRouter()
 
@@ -28,6 +31,7 @@ def unmatched(
     stmt = (
         select(PriceItem)
         .where(PriceItem.match_status.in_(statuses), PriceItem.is_active.is_(True))
+        .options(selectinload(PriceItem.tiers), joinedload(PriceItem.partner), joinedload(PriceItem.document))
         .order_by(PriceItem.match_score.desc().nullslast())
         .limit(limit)
         .offset(offset)
@@ -43,18 +47,56 @@ def unmatched(
     )
     out = []
     for it, sugg in zip(items, sugg_lists):
+        doc = it.document
+        fmt = (doc.file_format.value if doc and hasattr(doc.file_format, "value")
+               else (str(doc.file_format) if doc else None))
+        year = it.effective_date.year if it.effective_date else (doc.year if doc else None)
         out.append(UnmatchedOut(
             item_id=it.id,
             raw_name=it.raw_name,
+            raw_code=it.raw_code,
             raw_category=it.raw_category,
             partner_id=it.partner_id,
+            partner_name=it.partner.display_name if it.partner else None,
+            document_id=it.document_id,
+            source_filename=doc.source_filename if doc else None,
+            file_format=fmt,
+            year=year,
+            source_ref=it.source_ref,
             match_status=it.match_status.value,
             match_score=it.match_score,
             extraction_method=it.extraction_method,
+            tiers=[TierOut.model_validate(t) for t in it.tiers],
             suggestions=[{"service_id": s.service_id, "canonical_name": s.canonical_name,
                           "score": round(s.score, 3)} for s in sugg],
         ))
     return out
+
+
+@router.post("/review/ai-compare")
+def ai_compare(item_id: uuid.UUID = Body(..., embed=True), db: Session = Depends(get_db)):
+    """Run the LLM judge on one item's dictionary candidates and explain the best fit."""
+    if not llm_rerank.available():
+        raise HTTPException(400, "LLM сравнение недоступно (нет ключа OpenAI / выключено)")
+    it = db.get(PriceItem, item_id)
+    if it is None:
+        raise HTTPException(404, "item not found")
+    matcher = load_matcher_cached(db)
+    sugg = matcher.suggest_many([it.raw_name], k=5, categories=[it.raw_category], judge=False)[0]
+    if not sugg:
+        return {"choice": 0, "confidence": 0.0, "reason": "Кандидатов из справочника нет.", "best": None, "candidates": []}
+    res = llm_rerank.compare_one(it.raw_name, it.raw_category, [s.canonical_name for s in sugg])
+    choice = res["choice"]
+    best = sugg[choice - 1] if 1 <= choice <= len(sugg) else None
+    return {
+        "choice": choice,
+        "confidence": res["confidence"],
+        "reason": res["reason"],
+        "best": ({"service_id": best.service_id, "canonical_name": best.canonical_name,
+                  "score": round(best.score, 3)} if best else None),
+        "candidates": [{"service_id": s.service_id, "canonical_name": s.canonical_name,
+                        "score": round(s.score, 3)} for s in sugg],
+    }
 
 
 @router.post("/review/bulk-accept")

@@ -11,12 +11,13 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 import type {
-  Dashboard, DashboardDocs, DocumentRow, Partner, PartnerPrice, SearchResult, Service, ServicePrice, Unmatched,
+  AiCompare, Dashboard, DashboardDocs, DashboardPartners, DocPreview, DocumentRow, Partner, PartnerPrice, SearchResult, Service, ServicePrice, Unmatched,
 } from "./types";
 
 export const api = {
   dashboard: () => j<Dashboard>("/dashboard/stats"),
   dashboardDocs: () => j<DashboardDocs>("/dashboard/documents"),
+  dashboardPartners: () => j<DashboardPartners>("/dashboard/partners"),
   search: (q: string) => j<SearchResult>(`/search?q=${encodeURIComponent(q)}`),
 
   services: (params: { q?: string; category?: string; limit?: number } = {}) => {
@@ -42,6 +43,12 @@ export const api = {
   document: (id: string) => j<DocumentRow>(`/documents/${id}`),
 
   unmatched: (limit = 50) => j<Unmatched[]>(`/unmatched?limit=${limit}`),
+  documentPreview: (id: string, ref: string) =>
+    j<DocPreview>(`/documents/${id}/preview?ref=${encodeURIComponent(ref)}`),
+  aiCompare: (itemId: string) =>
+    j<AiCompare>("/review/ai-compare", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ item_id: itemId }),
+    }),
   bulkAccept: (minScore: number, dryRun: boolean) =>
     j<{ eligible: number; accepted: number; min_score: number; dry_run: boolean }>(
       `/review/bulk-accept?min_score=${minScore}&dry_run=${dryRun}`,

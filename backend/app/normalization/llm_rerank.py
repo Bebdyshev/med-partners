@@ -64,6 +64,38 @@ def _judge_one(raw_name: str, category: str | None, candidates: list[str]) -> tu
     return idx, max(0.0, min(1.0, conf))
 
 
+_SYS_COMPARE = (
+    "Ты — медицинский эксперт. Сопоставь строку из прайс-листа клиники с эталонным "
+    "справочником медицинских услуг. Учитывай сокращения, опечатки, OCR-ошибки, русский "
+    "и казахский язык, синонимы. Выбери кандидата, обозначающего ТУ ЖЕ услугу (не просто "
+    "ту же категорию). Если ни один не подходит — choice = 0. Ответь строго JSON: "
+    '{"choice": <номер 1..N или 0>, "confidence": <0..1>, '
+    '"reason": "<1–2 предложения по-русски: почему именно этот кандидат и чем не подошли остальные>"}.'
+)
+
+
+def compare_one(raw_name: str, category: str | None, candidates: list[str]) -> dict:
+    """LLM verdict for a single item with a human-readable rationale (powers 'ИИ сравнение')."""
+    cand_lines = "\n".join(f"{i + 1}. {c}" for i, c in enumerate(candidates))
+    user = (
+        f"Строка из прайса: «{raw_name}»\n"
+        f"Категория: {category or '—'}\n\n"
+        f"Кандидаты из справочника:\n{cand_lines}"
+    )
+    resp = _client().chat.completions.create(
+        model=settings.llm_model,
+        temperature=0,
+        response_format={"type": "json_object"},
+        messages=[{"role": "system", "content": _SYS_COMPARE}, {"role": "user", "content": user}],
+    )
+    data = json.loads(resp.choices[0].message.content or "{}")
+    return {
+        "choice": int(data.get("choice", 0) or 0),
+        "confidence": max(0.0, min(1.0, float(data.get("confidence", 0) or 0.0))),
+        "reason": str(data.get("reason", "") or ""),
+    }
+
+
 def judge_batch(items: list[tuple[str, str | None, list[str]]]) -> list[tuple[int, float]]:
     """items: (raw_name, category, candidate_names). Returns (chosen_idx_1based|0, confidence)."""
     if not items:

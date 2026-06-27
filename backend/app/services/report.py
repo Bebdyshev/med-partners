@@ -113,6 +113,62 @@ def compute_document_breakdown() -> dict:
         return {"documents": out_docs, "by_method": by_method, "by_category": by_category}
 
 
+def compute_partner_breakdown() -> dict:
+    """Per-partner rollup: positions, auto-match rate, price-list freshness + formats.
+    Powers the partners directory (so it's a comparison, not just a list)."""
+    with session_scope() as db:
+        partners = db.execute(select(Partner)).scalars().all()
+
+        ms: dict = {}
+        for pid, st, c in db.execute(
+            select(PriceItem.partner_id, PriceItem.match_status, func.count())
+            .group_by(PriceItem.partner_id, PriceItem.match_status)
+        ).all():
+            ms.setdefault(pid, {})[st] = c
+
+        docs: dict = {}
+        for d in db.execute(select(PriceDocument)).scalars().all():
+            docs.setdefault(d.partner_id, []).append(d)
+
+        out = []
+        for p in partners:
+            mm = ms.get(p.id, {})
+            items = sum(mm.values())
+            dlist = docs.get(p.id, [])
+            years = [d.year for d in dlist if d.year]
+            fmts = sorted({(d.file_format.value if hasattr(d.file_format, "value") else str(d.file_format)) for d in dlist})
+            auto = mm.get(MatchStatus.auto, 0)
+            out.append({
+                "id": str(p.id),
+                "code": p.code,
+                "display_name": p.display_name,
+                "legal_name": p.legal_name,
+                "city": p.city,
+                "is_active": p.is_active,
+                "items": items,
+                "auto": auto,
+                "review": mm.get(MatchStatus.review, 0),
+                "unmatched": mm.get(MatchStatus.unmatched, 0),
+                "auto_pct": round(auto / items * 100, 1) if items else 0.0,
+                "documents": len(dlist),
+                "latest_year": max(years) if years else None,
+                "formats": fmts,
+            })
+        out.sort(key=lambda x: x["items"], reverse=True)
+
+        total_items = sum(x["items"] for x in out)
+        with_items = [x for x in out if x["items"]]
+        avg_auto = round(sum(x["auto"] for x in out) / total_items * 100, 1) if total_items else 0.0
+        totals = {
+            "partners": len(out),
+            "active": sum(1 for x in out if x["is_active"]),
+            "items": total_items,
+            "avg_auto_pct": avg_auto,
+            "with_pricelist": len(with_items),
+        }
+        return {"partners": out, "totals": totals}
+
+
 def print_report() -> None:
     import json
 
