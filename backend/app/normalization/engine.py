@@ -17,7 +17,7 @@ from rapidfuzz import fuzz
 
 from app.config import settings
 from app.models.enums import MatchMethod, MatchStatus
-from app.normalization import embeddings, rerank
+from app.normalization import embeddings, llm_rerank, rerank
 from app.normalization.code_match import CodeIndex
 from app.normalization.fuzzy import Entry, build_entries, fuzzy_candidates
 from app.normalization.text_norm import normalize
@@ -57,11 +57,11 @@ class Matcher:
             except Exception:  # noqa: BLE001
                 self._use_embeddings = False
                 self._emb = None
-        # bind reranker at build time so the decision thresholds match the scoring
-        # scale actually used (a failed reranker load must NOT leave low thresholds on
-        # bi-encoder scores).
+        # LLM reranker takes precedence (no local ML); else fall back to the local
+        # cross-encoder. Bind at build time so decision thresholds match the scale used.
+        self._llm = llm_rerank.available()
         self._reranker = False
-        if rerank.available():
+        if not self._llm and rerank.available():
             try:
                 rerank._model()  # warm/verify load
                 self._reranker = True
@@ -135,6 +135,31 @@ class Matcher:
                     best[e.service_id] = Suggestion(e.service_id, e.canonical_name, score, method)
             out.append(sorted(best.values(), key=lambda s: s.score, reverse=True)[:k])
 
+        # LLM reranker (precision stage): judge the shortlist for items the bi-encoder
+        # found at least plausible. The LLM's confidence becomes the new top score.
+        if self._llm:
+            band, locs = [], []
+            for qi, lst in enumerate(out):
+                if lst and lst[0].score >= settings.llm_rerank_band_lo:
+                    band.append((raw_names[qi], categories[qi], [s.canonical_name for s in lst]))
+                    locs.append(qi)
+            if band:
+                verdicts = llm_rerank.judge_batch(band)
+                for qi, (idx, conf) in zip(locs, verdicts):
+                    lst = out[qi]
+                    if idx and 1 <= idx <= len(lst):
+                        chosen = lst[idx - 1]
+                        chosen.score = conf
+                        chosen.method = MatchMethod.embedding  # LLM verdict over the embedding shortlist
+                        for j, s in enumerate(lst):
+                            if j != idx - 1:
+                                s.score = min(s.score, conf * 0.5)
+                        out[qi] = sorted(lst, key=lambda s: s.score, reverse=True)
+                    else:
+                        for s in lst:  # no candidate matched -> drive below the floor
+                            s.score = min(s.score, settings.llm_review_floor - 0.01)
+            return out
+
         # optional cross-encoder rerank of the shortlist (offline; high precision)
         if self._reranker:
             pairs, idx = [], []
@@ -155,8 +180,10 @@ class Matcher:
     def _decide(self, sugg: list[Suggestion]) -> MatchResult:
         if not sugg:
             return MatchResult(MatchStatus.unmatched, None, MatchMethod.fuzzy, None, [])
-        # thresholds depend on the scoring scale actually used (cross-encoder lower)
-        if self._reranker:
+        # thresholds depend on the scoring scale actually used
+        if self._llm:
+            auto_t, floor_t = settings.llm_auto_threshold, settings.llm_review_floor
+        elif self._reranker:
             auto_t, floor_t = settings.rerank_auto_threshold, settings.rerank_review_floor
         else:
             auto_t, floor_t = settings.match_auto_threshold, settings.match_review_floor

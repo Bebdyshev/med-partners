@@ -47,6 +47,15 @@ def evaluate() -> dict:
         keys = list(gold)
         names = [k[0] for k in keys]
         cats = [k[1] or None for k in keys]
+        import sys
+        from app.config import settings
+        print(
+            f"[eval] provider={settings.embedding_provider} "
+            f"model={settings.active_embedding_model} "
+            f"emb_dim={None if matcher._emb is None else matcher._emb.shape[1]} "
+            f"use_embeddings={matcher._use_embeddings} reranker={matcher._reranker}",
+            file=sys.stderr,
+        )
         sugg = matcher.suggest_many(names, categories=cats)  # NAME-only signal
 
         preds = []  # (truth_sid, top_sid, score)

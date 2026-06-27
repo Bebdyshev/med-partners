@@ -26,6 +26,9 @@ dependencies = [
     # normalization
     "rapidfuzz>=3.6",
     "numpy>=1.26",
+    # OpenAI: embeddings (text-embedding-3-large) + LLM reranker (gpt-4o-mini).
+    # Default normalization stack — no local torch needed.
+    "openai>=1.40",
 ]
 
 [project.optional-dependencies]

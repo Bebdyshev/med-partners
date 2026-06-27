@@ -38,11 +38,11 @@ services:
       - "6380:6379"
     networks: [mednet]
 
+  # ---- OpenAI-backed normalization: NO local torch (light image). ----
+  # Embeddings = text-embedding-3-large, reranker = gpt-4o-mini. Needs OPENAI_API_KEY.
   api:
     build:
-      context: ../backend
-      args:
-        INSTALL_EMBEDDINGS: "true"   # full ML (e5 + cross-encoder) in the image
+      context: ../backend          # INSTALL_EMBEDDINGS defaults to false -> no sentence-transformers/torch
     container_name: med-api
     restart: unless-stopped
     command: bash -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
@@ -50,11 +50,15 @@ services:
       DATABASE_URL: postgresql+psycopg2://medarchive:${POSTGRES_PASSWORD:-medarchive}@postgres:5432/medarchive
       REDIS_URL: redis://:${REDIS_PASSWORD:-medarchive}@redis:6379/0
       STORAGE_DIR: /data/storage
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      EMBEDDING_PROVIDER: openai
       USE_EMBEDDINGS: "true"
-      USE_RERANKER: "false"          # heavy per-request; offline-only (data already normalized)
+      USE_LLM_RERANK: "true"
+      USE_RERANKER: "false"
       VIRTUAL_HOST: medapi.mastereducation.kz
       VIRTUAL_PORT: "8000"
       LETSENCRYPT_HOST: medapi.mastereducation.kz
+      LETSENCRYPT_EMAIL: masteredukz@gmail.com
     volumes:
       - medstorage:/data/storage
     networks: [mednet, proxy]
@@ -67,8 +71,6 @@ services:
   worker:
     build:
       context: ../backend
-      args:
-        INSTALL_EMBEDDINGS: "true"
     container_name: med-worker
     restart: unless-stopped
     command: celery -A app.tasks.celery_app.celery worker --loglevel=info --concurrency=2
@@ -76,7 +78,10 @@ services:
       DATABASE_URL: postgresql+psycopg2://medarchive:${POSTGRES_PASSWORD:-medarchive}@postgres:5432/medarchive
       REDIS_URL: redis://:${REDIS_PASSWORD:-medarchive}@redis:6379/0
       STORAGE_DIR: /data/storage
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      EMBEDDING_PROVIDER: openai
       USE_EMBEDDINGS: "true"
+      USE_LLM_RERANK: "true"
       USE_RERANKER: "false"
     volumes:
       - medstorage:/data/storage
@@ -86,20 +91,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-
-  frontend:
-    build:
-      context: ../frontend
-    container_name: med-frontend
-    restart: unless-stopped
-    environment:
-      BACKEND_URL: http://api:8000     # server-side proxy target (internal network)
-      VIRTUAL_HOST: med.mastereducation.kz
-      VIRTUAL_PORT: "3000"
-      LETSENCRYPT_HOST: med.mastereducation.kz
-    networks: [mednet, proxy]
-    depends_on:
-      - api
 
 volumes:
   medpgdata:

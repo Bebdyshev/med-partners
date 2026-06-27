@@ -25,5 +25,7 @@ jobs:
             cd ~/test
             git pull --ff-only
             cd deploy
-            # data layer only — Postgres + Redis (backend/frontend not deployed here)
-            docker compose -f docker-compose.prod.yml up -d postgres redis
+            # OPENAI_API_KEY + passwords live in deploy/.env on the server (not in git).
+            # Data layer + OpenAI-backed API & worker (no local ML / torch in the image).
+            docker compose -f docker-compose.prod.yml up -d --build postgres redis api worker
+            docker compose -f docker-compose.prod.yml ps
