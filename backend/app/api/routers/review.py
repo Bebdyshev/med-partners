@@ -34,9 +34,15 @@ def unmatched(
     )
     items = db.execute(stmt).scalars().all()
     matcher = load_matcher_cached(db)
+    # One batched, judge-free pass: ranked embedding hints for display (fast). The LLM
+    # judge is for the auto-decision, not for showing candidates — running it per item
+    # here would make every page load do dozens of LLM calls (gateway timeout).
+    sugg_lists = matcher.suggest_many(
+        [it.raw_name for it in items], k=5,
+        categories=[it.raw_category for it in items], judge=False,
+    )
     out = []
-    for it in items:
-        sugg = matcher.suggest(it.raw_name, k=5)
+    for it, sugg in zip(items, sugg_lists):
         out.append(UnmatchedOut(
             item_id=it.id,
             raw_name=it.raw_name,

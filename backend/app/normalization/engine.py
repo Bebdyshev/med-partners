@@ -84,8 +84,8 @@ class Matcher:
         return Suggestion(sid, name, 1.0, MatchMethod.exact)
 
     # ---- single ----
-    def suggest(self, raw_name: str, k: int = 5, category: str | None = None) -> list[Suggestion]:
-        return self.suggest_many([raw_name], k=k, categories=[category])[0]
+    def suggest(self, raw_name: str, k: int = 5, category: str | None = None, judge: bool = True) -> list[Suggestion]:
+        return self.suggest_many([raw_name], k=k, categories=[category], judge=judge)[0]
 
     def match(self, raw_name: str, raw_code: str | None = None, category: str | None = None) -> MatchResult:
         code = self.code_lookup(raw_code)
@@ -100,12 +100,12 @@ class Matcher:
 
     # ---- batch ----
     def suggest_many(self, raw_names: list[str], k: int = 5, categories: list | None = None,
-                     query_texts: list[str] | None = None) -> list[list[Suggestion]]:
+                     query_texts: list[str] | None = None, judge: bool = True) -> list[list[Suggestion]]:
         if not self.entries:
             return [[] for _ in raw_names]
         cats = categories or [None] * len(raw_names)
         if self._use_embeddings and self._emb is not None:
-            return self._suggest_semantic(raw_names, cats, k, query_texts)
+            return self._suggest_semantic(raw_names, cats, k, query_texts, judge)
         return [self._suggest_fuzzy(rn, c, k) for rn, c in zip(raw_names, cats)]
 
     def match_many(self, raw_names: list[str], categories: list | None = None,
@@ -129,7 +129,7 @@ class Matcher:
         return out
 
     def _suggest_semantic(self, raw_names: list[str], categories: list, k: int,
-                          query_texts: list[str] | None = None) -> list[list[Suggestion]]:
+                          query_texts: list[str] | None = None, judge: bool = True) -> list[list[Suggestion]]:
         import numpy as np
 
         # Embed the (optionally LLM-cleaned) query text; the LLM judge below still sees the
@@ -154,7 +154,9 @@ class Matcher:
 
         # LLM reranker (precision stage): judge the shortlist for items the bi-encoder
         # found at least plausible. The LLM's confidence becomes the new top score.
-        if self._llm:
+        # Skipped (judge=False) for review-queue *display*, where ranked embedding hints
+        # are enough — avoids a per-item LLM call on every page load.
+        if judge and self._llm:
             band, locs = [], []
             for qi, lst in enumerate(out):
                 if lst and lst[0].score >= settings.llm_rerank_band_lo:
