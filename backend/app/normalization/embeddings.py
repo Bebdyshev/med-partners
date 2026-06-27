@@ -53,12 +53,26 @@ def _embed_batch_with_retry(client, model: str, chunk: list[str], attempts: int 
 
 
 def _encode_openai(texts: list[str]) -> np.ndarray:
+    from concurrent.futures import ThreadPoolExecutor
+
     client = _openai_client()
     model = settings.openai_embedding_model
+    batches = [
+        [t if t.strip() else " " for t in texts[i : i + _OPENAI_BATCH]]
+        for i in range(0, len(texts), _OPENAI_BATCH)
+    ]
+    results: list = [None] * len(batches)
+
+    def work(bi: int):
+        return bi, _embed_batch_with_retry(client, model, batches[bi])
+
+    workers = max(1, min(settings.llm_max_workers, len(batches)))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for bi, data in ex.map(work, range(len(batches))):
+            results[bi] = data
+
     out: list[list[float]] = []
-    for i in range(0, len(texts), _OPENAI_BATCH):
-        chunk = [t if t.strip() else " " for t in texts[i : i + _OPENAI_BATCH]]
-        data = _embed_batch_with_retry(client, model, chunk)
+    for data in results:
         out.extend(d.embedding for d in data)
     mat = np.asarray(out, dtype=np.float32)
     # L2-normalize so dot product is cosine (matches the engine + thresholds)

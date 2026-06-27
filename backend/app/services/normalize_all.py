@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.db.session import session_scope
 from app.models import MatchDecision, PriceItem
 from app.models.enums import MatchAction, MatchMethod, MatchStatus
+from app.normalization.code_match import find_code_in_text
 from app.normalization.dictionary import load_matcher
 
 
@@ -34,6 +35,11 @@ def renormalize_all() -> dict:
                 counts["kept_manual"] += 1
                 continue
             code = matcher.code_lookup(item.raw_code)
+            if code is None:
+                # lab scans bury the tariff code (often Cyrillic homoglyphs) in the name
+                alt = find_code_in_text(item.raw_name)
+                if alt:
+                    code = matcher.code_lookup(alt)
             if code is not None:
                 sid = _uuid(code.service_id)
                 item.service_id = sid
