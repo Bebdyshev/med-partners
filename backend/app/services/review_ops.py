@@ -35,7 +35,9 @@ def bulk_accept_review(min_score: float, dry_run: bool = False, decided_by: str 
 
         matcher = load_matcher_cached(db)
         distinct = sorted({it.raw_name for it in items})
-        sugg = dict(zip(distinct, matcher.suggest_many(distinct)))
+        # judge-free: items already passed the score threshold; we just need the top
+        # candidate to assign. Running the LLM judge per item here would gateway-timeout.
+        sugg = dict(zip(distinct, matcher.suggest_many(distinct, judge=False)))
 
         accepted = 0
         for it in items:
