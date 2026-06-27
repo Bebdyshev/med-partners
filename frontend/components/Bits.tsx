@@ -46,6 +46,18 @@ export function PriceTiers({ tiers }: { tiers: Tier[] }) {
   );
 }
 
+/** Confidence meter — the product's signature readout. score in [0,1]. */
+export function Meter({ score, showVal = true }: { score: number; showVal?: boolean }) {
+  const pct = Math.max(0, Math.min(1, score)) * 100;
+  const band = score >= 0.85 ? "hi" : score >= 0.6 ? "mid" : "lo";
+  return (
+    <span className={`meter ${band}`} role="meter" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+      <span className="track"><span className="fill" style={{ width: `${pct}%` }} /></span>
+      {showVal && <span className="val">{score.toFixed(2)}</span>}
+    </span>
+  );
+}
+
 export function Loading({ what = "Загрузка" }: { what?: string }) {
   return <div className="loading">{what}…</div>;
 }

@@ -23,7 +23,7 @@ export default function SearchPage() {
 
   return (
     <>
-      <PageHead eyebrow="02 · Поиск" title="Найти услугу или клинику" />
+      <PageHead eyebrow="Поиск" title="Найти услугу или клинику" />
 
       <form className="field" onSubmit={run} style={{ maxWidth: 620 }}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="например: кардиолог, УЗИ, дисбактериоз…" />

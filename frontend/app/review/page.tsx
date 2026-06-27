@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useFetch } from "@/lib/useFetch";
 import type { Unmatched } from "@/lib/types";
-import { PageHead, Loading, ErrorNote, StatusBadge } from "@/components/Bits";
+import { PageHead, Loading, ErrorNote, StatusBadge, Meter } from "@/components/Bits";
 import { Glyph } from "@/components/Icon";
 
 export default function ReviewPage() {
@@ -53,7 +53,7 @@ export default function ReviewPage() {
 
   return (
     <>
-      <PageHead eyebrow="06 · Верификация" title="Очередь ручной разметки">
+      <PageHead eyebrow="Контроль качества" title="Очередь ручной разметки">
         <button className="btn small" onClick={reload}>Обновить</button>
       </PageHead>
 
@@ -95,7 +95,7 @@ export default function ReviewPage() {
             <div className="between" style={{ alignItems: "flex-start" }}>
               <div>
                 <div className="upper muted">{item.raw_category || "без категории"}</div>
-                <div style={{ fontSize: 17, fontFamily: "var(--font-display)", marginTop: 3 }}>{item.raw_name}</div>
+                <div style={{ fontSize: 17, fontWeight: 600, marginTop: 4 }}>{item.raw_name}</div>
                 <div className="row" style={{ gap: 8, marginTop: 8 }}>
                   <StatusBadge status={item.match_status} />
                   {item.match_score != null && (
@@ -112,9 +112,9 @@ export default function ReviewPage() {
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
                 {item.suggestions.map((s) => (
-                  <div key={s.service_id} className="between" style={{ borderBottom: "1px dotted var(--rule)", paddingBottom: 8 }}>
-                    <div className="row" style={{ gap: 12 }}>
-                      <span className="num" style={{ width: 46, color: scoreColor(s.score) }}>{s.score.toFixed(2)}</span>
+                  <div key={s.service_id} className="between" style={{ borderBottom: "1px dashed var(--rule)", paddingBottom: 10 }}>
+                    <div className="row" style={{ gap: 14 }}>
+                      <Meter score={s.score} />
                       <span>{s.canonical_name}</span>
                     </div>
                     <button
@@ -146,10 +146,4 @@ export default function ReviewPage() {
       )}
     </>
   );
-}
-
-function scoreColor(s: number): string {
-  if (s >= 0.85) return "var(--accent)";
-  if (s >= 0.6) return "var(--amber)";
-  return "var(--oxblood)";
 }

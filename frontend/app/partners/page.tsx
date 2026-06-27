@@ -10,7 +10,7 @@ export default function PartnersPage() {
 
   return (
     <>
-      <PageHead eyebrow="04 · Партнёры" title="Клиники-партнёры" />
+      <PageHead eyebrow="Партнёры" title="Клиники-партнёры" />
       {loading && <Loading />}
       {error && <ErrorNote error={error} />}
       {data && (

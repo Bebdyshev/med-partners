@@ -13,7 +13,7 @@ export default function ServicesPage() {
 
   return (
     <>
-      <PageHead eyebrow="03 · Справочник" title="Услуги" />
+      <PageHead eyebrow="Справочник" title="Услуги" />
 
       <form
         className="field" style={{ maxWidth: 460 }}

@@ -45,4 +45,36 @@ export const Glyph = {
   x: ({ size = 16, className }: P) => (
     <svg {...base(size)} className={className}><path d="M6 6l12 12M18 6L6 18"/></svg>
   ),
+  // upload: tray with an up-stroke
+  upload: ({ size = 18, className }: P) => (
+    <svg {...base(size)} className={className}><path d="M12 15V4M8 8l4-4 4 4"/><path d="M4 15v5h16v-5"/></svg>
+  ),
+  // scan / OCR: a framed page with a sweeping line
+  scan: ({ size = 18, className }: P) => (
+    <svg {...base(size)} className={className}><path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3"/><path d="M4 12h16"/></svg>
+  ),
+  // table: gridded cells
+  table: ({ size = 18, className }: P) => (
+    <svg {...base(size)} className={className}><rect x="3" y="4" width="18" height="16"/><path d="M3 10h18M3 15h18M9 4v16"/></svg>
+  ),
+  // normalize / reconcile: two marks converging to one
+  reconcile: ({ size = 18, className }: P) => (
+    <svg {...base(size)} className={className}><path d="M4 6h6l4 6 4-6M4 18h6l4-6"/></svg>
+  ),
+  // validate: shield with a tick
+  shield: ({ size = 18, className }: P) => (
+    <svg {...base(size)} className={className}><path d="M12 3l7 3v6c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+  ),
+  // versions: stacked sheets
+  layers: ({ size = 18, className }: P) => (
+    <svg {...base(size)} className={className}><path d="M12 3l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4"/></svg>
+  ),
+  // check
+  check: ({ size = 16, className }: P) => (
+    <svg {...base(size)} className={className}><path d="M5 12l4 4 10-11"/></svg>
+  ),
+  // price tag
+  tag: ({ size = 18, className }: P) => (
+    <svg {...base(size)} className={className}><path d="M3 12V4h8l9 9-8 8z"/><path d="M8 8h.01"/></svg>
+  ),
 };

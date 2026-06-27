@@ -1,26 +1,23 @@
 import type { Metadata } from "next";
-import { Spectral, Commissioner, IBM_Plex_Mono } from "next/font/google";
-import Sidebar from "@/components/Sidebar";
+import { Unbounded, Onest, IBM_Plex_Mono } from "next/font/google";
+import AppFrame from "@/components/AppFrame";
 import "./globals.css";
 
-// All three carry Cyrillic — the UI is Russian. Distinct editorial pairing.
-const display = Spectral({ subsets: ["latin", "cyrillic"], weight: ["500", "600"], variable: "--font-display" });
-const body = Commissioner({ subsets: ["latin", "cyrillic"], weight: ["400", "500", "600"], variable: "--font-body" });
-const mono = IBM_Plex_Mono({ subsets: ["latin", "cyrillic"], weight: ["400", "500"], variable: "--font-mono" });
+// Engineered display (used sparingly), clean Cyrillic UI face, tabular mono for data.
+const display = Unbounded({ subsets: ["latin", "cyrillic"], weight: ["400", "600", "800"], variable: "--font-display" });
+const body = Onest({ subsets: ["latin", "cyrillic"], weight: ["400", "500", "600", "700"], variable: "--font-body" });
+const mono = IBM_Plex_Mono({ subsets: ["latin", "cyrillic"], weight: ["400", "500", "600"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
   title: "MedArchive — реестр услуг и цен",
-  description: "Единая база услуг и цен клиник-партнёров",
+  description: "Прайс-листы клиник → единый нормализованный реестр услуг и цен",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>
-        <div className="app">
-          <Sidebar />
-          <main className="main">{children}</main>
-        </div>
+        <AppFrame>{children}</AppFrame>
       </body>
     </html>
   );
