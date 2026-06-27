@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 
 from app.config import settings
+from app.extractors import vision_extract
 from app.extractors.base import BaseExtractor, ExtractResult
 from app.extractors.common.line_items import parse_line_items, parse_trailing_prices
 from app.extractors.common.table_to_rows import table_to_rows
@@ -79,7 +80,25 @@ class PdfExtractor(BaseExtractor):
         has_image = bool(getattr(page, "images", None))
         if has_image and self._ocr_used < self.ocr_page_budget:
             self._ocr_used += 1
+            # Prefer the vision model: it returns STRUCTURED rows (name / code /
+            # biomaterial / prices kept apart) instead of merged Tesseract text.
+            if vision_extract.available():
+                n_before = len(result.rows)
+                self._from_vision(pageno, result, pdf_path)
+                if len(result.rows) > n_before:
+                    return
+                # vision yielded nothing (call failed / empty) -> Tesseract fallback
             self._from_ocr(pageno, result, pdf_path)
+
+    # --- vision-LLM path (structured OCR) ---
+    def _from_vision(self, pageno: int, result: ExtractResult, pdf_path: Path) -> None:
+        try:
+            rows = vision_extract.extract_page_rows(pdf_path, pageno - 1)
+        except Exception as exc:  # noqa: BLE001 — never let vision crash the doc
+            result.warnings.append(f"pdf page {pageno}: vision extraction failed ({exc})")
+            return
+        for r in rows:
+            result.add_row(r)
 
     # --- text layer path ---
     def _from_text_layer(self, page, pageno: int, result: ExtractResult) -> None:
