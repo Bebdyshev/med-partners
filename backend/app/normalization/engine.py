@@ -17,7 +17,7 @@ from rapidfuzz import fuzz
 
 from app.config import settings
 from app.models.enums import MatchMethod, MatchStatus
-from app.normalization import embeddings, llm_rerank, rerank
+from app.normalization import embeddings, llm_normalize, llm_rerank, rerank
 from app.normalization.code_match import CodeIndex, find_code_in_text
 from app.normalization.fuzzy import Entry, build_entries, fuzzy_candidates
 from app.normalization.text_norm import normalize
@@ -53,7 +53,14 @@ class Matcher:
         self._emb = None
         if self._use_embeddings and self.entries:
             try:
-                self._emb = embeddings.encode_passages([e.norm or e.text for e in self.entries])
+                # Clean dictionary names the SAME way as queries so both sit in one phrasing
+                # space (measured: lifts recall@k ~4pp; query-only cleaning barely helped).
+                if settings.use_llm_normalize_dict and llm_normalize.available():
+                    cleaned = llm_normalize.clean_names([e.text or e.norm for e in self.entries])
+                    passage_texts = [normalize(t) for t in cleaned]
+                else:
+                    passage_texts = [e.norm or e.text for e in self.entries]
+                self._emb = embeddings.encode_passages(passage_texts)
             except Exception:  # noqa: BLE001
                 self._use_embeddings = False
                 self._emb = None

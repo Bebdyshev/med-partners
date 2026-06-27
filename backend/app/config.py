@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     # LLM name normalization: clean each raw name to a canonical phrase before embedding
     # (lifts retrieval recall on messy/abbreviated names). Disk-cached. No local ML.
     use_llm_normalize: bool = True
+    use_llm_normalize_dict: bool = True   # also clean dictionary names (symmetry — lifts recall ~4pp)
     match_top_k: int = 20              # shortlist size handed to the LLM judge (recall vs cost)
 
     @property
