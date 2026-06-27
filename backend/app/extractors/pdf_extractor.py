@@ -23,6 +23,16 @@ from app.extractors.common.words_to_table import words_to_rows_headerless, words
 _CYRILLIC = re.compile(r"[А-Яа-яЁёІіҚқҢңҒғҮүҰұӘәӨөҺһ]")
 
 
+def _page_is_scan(page, cover_threshold: float = 0.8) -> bool:
+    """A page is a scan when a single image covers most of it (full-page raster)."""
+    imgs = getattr(page, "images", None) or []
+    if not imgs:
+        return False
+    page_area = float(page.width * page.height) or 1.0
+    cover = max((float(i["width"] * i["height"]) for i in imgs), default=0.0) / page_area
+    return cover >= cover_threshold
+
+
 def _text_quality(text: str) -> tuple[int, float]:
     """Return (char_count, cyrillic_ratio). Low values => treat page as scan."""
     if not text:
@@ -57,6 +67,16 @@ class PdfExtractor(BaseExtractor):
         text = page.extract_text() or ""
         chars, cyr_ratio = _text_quality(text)
         good_text = chars >= settings.pdf_text_min_chars_per_page and cyr_ratio >= 0.3
+
+        # A scanned page carries a full-page image; its embedded OCR text layer is
+        # unreliable (columns merge, codes land in the name). Prefer the vision model,
+        # which returns STRUCTURED rows. Falls through to text/Tesseract if vision is off.
+        if _page_is_scan(page) and vision_extract.available() and self._ocr_used < self.ocr_page_budget:
+            self._ocr_used += 1
+            n_before = len(result.rows)
+            self._from_vision(pageno, result, pdf_path)
+            if len(result.rows) > n_before:
+                return
 
         if good_text:
             # the page has a usable text layer: parse it via the fast path first
