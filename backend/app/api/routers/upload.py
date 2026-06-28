@@ -9,10 +9,39 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.models import PriceDocument
-from app.services.ingestion import _sha256, register_file
+from app.models import Partner, PriceDocument
+from app.services.ingestion import _sha256, parse_filename, register_file
 
 router = APIRouter()
+
+
+def _find_existing(db: Session, f: Path) -> str | None:
+    """Find an already-processed document to replay for this upload — by exact hash,
+    then (demo fallback, e.g. out of API credits or a trimmed file) by the same clinic
+    parsed from the filename. Returns the doc id or None."""
+    dupes = db.execute(
+        select(PriceDocument)
+        .where(PriceDocument.file_hash == _sha256(f))
+        .order_by(PriceDocument.created_at.desc())
+    ).scalars().all()
+    if dupes:
+        return str(next((d for d in dupes if d.parsed_at is not None), dupes[0]).id)
+    code, _ = parse_filename(f.name)
+    partner = db.execute(select(Partner).where(Partner.code == code)).scalar_one_or_none()
+    if partner is not None:
+        procs = db.execute(
+            select(PriceDocument)
+            .where(PriceDocument.partner_id == partner.id, PriceDocument.parsed_at.isnot(None))
+            .order_by(PriceDocument.created_at.desc())
+        ).scalars().all()
+        if procs:
+            want = f.suffix.lower().lstrip(".")
+            # prefer a processed doc of the same format (so a PDF upload replays a PDF,
+            # keeping the page scanner), else the most recent processed doc
+            same = next((d for d in procs if (d.file_format.value if hasattr(d.file_format, "value")
+                                              else str(d.file_format)).lower() == want), None)
+            return str((same or procs[0]).id)
+    return None
 
 
 @router.post("/upload")
@@ -36,19 +65,16 @@ async def upload(
     existing: list[str] = []
     skipped = 0
     for f in _iter_files(tmp):
+        # Prefer replaying an already-processed document (by hash, else same clinic) —
+        # the demo reuses stored data and never needs OpenAI credits.
+        ex = _find_existing(db, f) if dedupe else None
+        if ex is not None:
+            existing.append(ex)
+            skipped += 1
+            continue
         doc = register_file(db, f, allow_duplicate=not dedupe)
         if doc is None:
             skipped += 1
-            # surface the already-stored document so the client can show its data —
-            # prefer a fully-processed copy (parsed_at set) over an interrupted/queued one
-            dupes = db.execute(
-                select(PriceDocument)
-                .where(PriceDocument.file_hash == _sha256(f))
-                .order_by(PriceDocument.created_at.desc())
-            ).scalars().all()
-            if dupes:
-                best = next((d for d in dupes if d.parsed_at is not None), dupes[0])
-                existing.append(str(best.id))
             continue
         created.append(str(doc.id))
     db.commit()

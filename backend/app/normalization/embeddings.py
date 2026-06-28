@@ -33,8 +33,9 @@ def _provider() -> str:
 def _openai_client():
     from openai import OpenAI
 
+    # cap each request so a slow/credit-less API can't hang the pipeline
     key = settings.openai_api_key
-    return OpenAI(api_key=key) if key else OpenAI()  # falls back to env OPENAI_API_KEY
+    return OpenAI(api_key=key, timeout=30.0, max_retries=1) if key else OpenAI(timeout=30.0, max_retries=1)
 
 
 def _embed_batch_with_retry(client, model: str, chunk: list[str], attempts: int = 6):
