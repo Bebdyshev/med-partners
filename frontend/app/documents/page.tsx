@@ -1,6 +1,6 @@
 "use client";
 import "../pipeline.css";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useFetch } from "@/lib/useFetch";
 import { PageHead, Loading, ErrorNote, StatusBadge } from "@/components/Bits";
@@ -21,11 +21,52 @@ const FORMATS: { ic: keyof typeof Glyph; nm: string; sub: string; ext: string }[
   { ic: "layers", nm: "Архив", sub: "пакет файлов", ext: ".zip" },
 ];
 
+const ACTIVE_KEY = "medarchive:activeDoc";
+
 export default function DocumentsPage() {
   const { data, error, loading, reload } = useFetch(() => api.documents(), []);
   const [over, setOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [reconnect, setReconnect] = useState<{ id: string; name: string } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // On load, resume a still-running job from a prior page session (survives reload).
+  useEffect(() => {
+    let alive = true;
+    try {
+      const raw = localStorage.getItem(ACTIVE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { id: string; name: string };
+      api.document(saved.id)
+        .then((doc) => {
+          if (!alive) return;
+          if (doc.status === "queued" || doc.status === "processing") setReconnect(saved);
+          else localStorage.removeItem(ACTIVE_KEY);
+        })
+        .catch(() => localStorage.removeItem(ACTIVE_KEY));
+    } catch { /* ignore */ }
+    return () => { alive = false; };
+  }, []);
+
+  const queuedCount = (data || []).filter((d) => d.status === "queued").length;
+
+  async function del(id: string) {
+    setBusy(id);
+    try { await api.deleteDocument(id); reload(); }
+    catch (e) { alert("Не удалось удалить: " + (e as Error).message); }
+    finally { setBusy(null); }
+  }
+  async function purgeQueue() {
+    if (!window.confirm(`Удалить все документы в очереди (${queuedCount})?`)) return;
+    setBusy("purge");
+    try { const r = await api.purgeDocuments("queued"); reload(); alert(`Удалено: ${r.deleted}`); }
+    catch (e) { alert("Ошибка: " + (e as Error).message); }
+    finally { setBusy(null); }
+  }
+
+  const showProgress = file || reconnect;
+  const closeProgress = () => { setFile(null); setReconnect(null); reload(); };
 
   return (
     <>
@@ -35,11 +76,13 @@ export default function DocumentsPage() {
         извлечёт позиции и цены, приведёт их к <b>единому справочнику</b> и проставит оценку уверенности.
       </p>
 
-      {file ? (
+      {showProgress ? (
         <ParseProgress
-          file={file}
+          file={file ?? undefined}
+          reconnectId={!file && reconnect ? reconnect.id : undefined}
+          reconnectName={!file && reconnect ? reconnect.name : undefined}
           onComplete={reload}
-          onClose={() => setFile(null)}
+          onClose={closeProgress}
         />
       ) : (
         <div
@@ -88,6 +131,14 @@ export default function DocumentsPage() {
       )}
 
       <div className="section-title">Обработанные документы</div>
+      {queuedCount > 0 && (
+        <div className="pipe-queuebar">
+          <span>{queuedCount} в очереди</span>
+          <button className="btn small" disabled={busy === "purge"} onClick={purgeQueue}>
+            <Glyph.x size={13} /> {busy === "purge" ? "Очистка…" : "Очистить очередь"}
+          </button>
+        </div>
+      )}
       {loading && <Loading />}
       {error && <ErrorNote error={error} />}
       {data && (
@@ -95,7 +146,7 @@ export default function DocumentsPage() {
           <div className="panel">
             <table className="table">
               <thead>
-                <tr><th>Файл</th><th style={{ width: 110 }}>Формат</th><th style={{ width: 70 }} className="num">Год</th><th style={{ width: 130 }}>Статус</th><th>Метод извлечения</th></tr>
+                <tr><th>Файл</th><th style={{ width: 110 }}>Формат</th><th style={{ width: 70 }} className="num">Год</th><th style={{ width: 130 }}>Статус</th><th>Метод извлечения</th><th style={{ width: 44 }}></th></tr>
               </thead>
               <tbody>
                 {data.map((d) => (
@@ -112,9 +163,14 @@ export default function DocumentsPage() {
                         {Object.keys(d.method_summary || {}).length === 0 && <span className="muted">—</span>}
                       </div>
                     </td>
+                    <td>
+                      <button className="pipe-doc-del" title="Удалить документ" disabled={busy === d.id} onClick={() => del(d.id)}>
+                        <Glyph.x size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
-                {data.length === 0 && <tr><td colSpan={5} className="muted" style={{ padding: 30, textAlign: "center" }}>Документов пока нет — загрузите первый прайс-лист выше.</td></tr>}
+                {data.length === 0 && <tr><td colSpan={6} className="muted" style={{ padding: 30, textAlign: "center" }}>Документов пока нет — загрузите первый прайс-лист выше.</td></tr>}
               </tbody>
             </table>
           </div>

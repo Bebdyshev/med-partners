@@ -26,13 +26,17 @@ _ITEMS_EVERY = 2   # нормализация — finer updates so the tally vis
 
 
 def process_document(
-    db, doc: PriceDocument, progress: Callable[[dict], None] | None = None
+    db, doc: PriceDocument,
+    progress: Callable[[dict], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> dict:
     """Process one document in-place within the given session. Returns a summary.
 
     When `progress` is given it is called with small dict events at each stage
-    (read/extract/ocr/items/validate/done) — used by the streaming demo endpoint
-    to drive a live UI. It is a no-op everywhere else (CLI, Celery)."""
+    (read/extract/ocr/parse/normalize/validate/done) — used by the streaming
+    endpoint to drive a live UI. It is a no-op everywhere else (CLI, Celery).
+    When `should_cancel` is given it is polled between pages/items; if it returns
+    True the pipeline raises CancelledError so the worker's session rolls back."""
 
     def emit(ev: dict) -> None:
         if progress is not None:
@@ -40,6 +44,11 @@ def process_document(
                 progress(ev)
             except Exception:  # noqa: BLE001 — progress must never break processing
                 pass
+
+    def ck() -> None:
+        if should_cancel is not None and should_cancel():
+            from app.services.jobs import CancelledError
+            raise CancelledError()
 
     doc.status = ParseStatus.processing
     db.flush()
@@ -55,8 +64,11 @@ def process_document(
         return {"status": "error", "items": 0}
 
     emit({"stage": "extract"})
+    from app.services.jobs import CancelledError
     try:
-        result = extractor.extract(Path(doc.stored_path), progress=progress)
+        result = extractor.extract(Path(doc.stored_path), progress=progress, should_cancel=should_cancel)
+    except CancelledError:
+        raise  # let the worker handle cancellation (rolls back the session)
     except Exception as exc:  # noqa: BLE001
         doc.status = ParseStatus.error
         doc.parse_log = f"extraction crashed: {type(exc).__name__}: {exc}"
@@ -79,6 +91,7 @@ def process_document(
     # ── Pass 1 · разбор позиций и цен — build items + tiers (fast, no API) ──
     built: list[tuple] = []  # (item, raw, tier_vals)
     for i, raw in enumerate(result.rows, start=1):
+        ck()
         item = PriceItem(
             document_id=doc.id,
             partner_id=doc.partner_id,
@@ -109,6 +122,7 @@ def process_document(
 
     # ── Pass 2 · нормализация к справочнику — match + validate + version (streams) ──
     for (item, raw, tier_vals) in built:
+        ck()
         match = matcher.match(raw.raw_name, raw.code, raw.category)
         item.match_status = match.status
         item.match_score = match.score

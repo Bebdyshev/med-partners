@@ -50,7 +50,7 @@ class PdfExtractor(BaseExtractor):
     #: cap OCR pages per document so a huge scan cannot blow the time budget
     ocr_page_budget = 60
 
-    def extract(self, path: Path, progress=None) -> ExtractResult:
+    def extract(self, path: Path, progress=None, should_cancel=None) -> ExtractResult:
         result = ExtractResult()
         self._ocr_used = 0
         import pdfplumber
@@ -61,6 +61,11 @@ class PdfExtractor(BaseExtractor):
                     progress(ev)
                 except Exception:  # noqa: BLE001
                     pass
+
+        def ck() -> None:
+            if should_cancel is not None and should_cancel():
+                from app.services.jobs import CancelledError
+                raise CancelledError()
 
         with pdfplumber.open(path) as pdf:
             pages = pdf.pages
@@ -79,6 +84,7 @@ class PdfExtractor(BaseExtractor):
                 # UI can show each page being scanned in order.
                 vision_rows: dict[int, list] = {}
                 for pn in scan_pagenos[: self.ocr_page_budget]:
+                    ck()
                     emit({"stage": "ocr", "page": pn, "page_total": page_total})
                     try:
                         rows = vision_extract.extract_page_rows(path, pn - 1)

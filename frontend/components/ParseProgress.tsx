@@ -36,12 +36,20 @@ function MatchMark({ status }: { status: string }) {
   return <span className="pp-mk none">?</span>;
 }
 
+const ACTIVE_KEY = "medarchive:activeDoc";
+function persistActive(v: { id: string; name: string }) { try { localStorage.setItem(ACTIVE_KEY, JSON.stringify(v)); } catch { /* ignore */ } }
+function clearActive() { try { localStorage.removeItem(ACTIVE_KEY); } catch { /* ignore */ } }
+
 export default function ParseProgress({
   file,
+  reconnectId,
+  reconnectName,
   onComplete,
   onClose,
 }: {
-  file: File;
+  file?: File;
+  reconnectId?: string;
+  reconnectName?: string;
   onComplete: () => void;
   onClose: () => void;
 }) {
@@ -53,7 +61,8 @@ export default function ParseProgress({
   const [parseProg, setParseProg] = useState<{ done: number; total: number } | null>(null);
   const [tally, setTally] = useState<Tally | null>(null);
   const [result, setResult] = useState<Result | null>(null);
-  const docIdRef = useRef<string>("");
+  const [canceling, setCanceling] = useState(false);
+  const docIdRef = useRef<string>(reconnectId || "");
   const settledRef = useRef(false);
 
   // smooth percentage readout — eases toward target so the number climbs like an instrument
@@ -77,6 +86,7 @@ export default function ParseProgress({
 
     function settle(r: Result) {
       settledRef.current = true;
+      clearActive(); // processing finished — nothing to resume
       if (alive) setResult(r);
     }
 
@@ -123,6 +133,8 @@ export default function ParseProgress({
           onComplete();
           break;
         }
+        case "canceled":
+          settle({ kind: "error", msg: "Обработка отменена." }); break;
         case "error":
           settle({ kind: "error", msg: ev.message }); break;
       }
@@ -146,43 +158,64 @@ export default function ParseProgress({
       }
     }
 
+    async function stream(id: string) {
+      docIdRef.current = id;
+      persistActive({ id, name: reconnectName || file?.name || "документ" });
+      setStage((s) => (s === 0 ? 0 : s));
+      try {
+        // streamProcess re-attaches to the running job and replays progress on reconnect
+        await api.streamProcess(id, handle, ctrl.signal);
+      } catch (e) {
+        if (!settledRef.current && alive) settle({ kind: "error", msg: (e as Error).message });
+      }
+    }
+
     (async () => {
+      // Reconnect mode: a job is already running for this doc — just tail it.
+      if (reconnectId) { await stream(reconnectId); return; }
+
       let up;
       try {
         // process=false: we drive processing via the stream. dedupe OFF so every upload
-        // re-runs and plays the full live pipeline (даже если файл уже был в базе —
-        // для демо важно показать весь процесс, а не скипнуть на кэш). The existing-data
-        // path below is a safety net for when nothing new is created. The abort signal
-        // means a discarded StrictMode double-mount doesn't leave an orphan document.
-        up = await api.upload(file, false, false, false, ctrl.signal);
+        // re-runs and plays the full live pipeline (даже если файл уже был в базе).
+        // The existing-data path is a safety net. The abort signal means a discarded
+        // StrictMode double-mount doesn't leave an orphan document.
+        up = await api.upload(file!, false, false, false, ctrl.signal);
       } catch (e) {
         if (!alive) return; // aborted (StrictMode cleanup) — ignore
         settle({ kind: "error", msg: (e as Error).message }); return;
       }
       if (!alive) return;
       if (!up.created.length) {
-        // duplicate (or nothing new) — show what's already stored for this file
         if (up.existing && up.existing.length) { await showExisting(up.existing[0]); }
         else settle({ kind: "error", msg: "файл не создан" });
         return;
       }
-      docIdRef.current = up.created[0];
       setStage(0); setPctTarget(8);
-      try {
-        await api.streamProcess(up.created[0], handle, ctrl.signal);
-      } catch (e) {
-        if (!settledRef.current) settle({ kind: "error", msg: (e as Error).message });
-      }
+      await stream(up.created[0]);
     })();
 
     return () => { alive = false; ctrl.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const ext = (file.name.split(".").pop() || "").toUpperCase().slice(0, 4);
-  const sizeKb = file.size < 1024 * 1024
-    ? `${Math.max(1, Math.round(file.size / 1024))} КБ`
-    : `${(file.size / 1024 / 1024).toFixed(1)} МБ`;
+  async function cancel() {
+    const id = docIdRef.current;
+    if (!id) { onClose(); return; }
+    setCanceling(true);
+    try { await api.deleteDocument(id); } catch { /* ignore */ }
+    clearActive();
+    onComplete();
+    onClose();
+  }
+
+  const displayName = file?.name || reconnectName || "документ";
+  const ext = (displayName.split(".").pop() || "").toUpperCase().slice(0, 4);
+  const sizeKb = file
+    ? (file.size < 1024 * 1024
+        ? `${Math.max(1, Math.round(file.size / 1024))} КБ`
+        : `${(file.size / 1024 / 1024).toFixed(1)} МБ`)
+    : "возобновлено";
   const done = pct >= 99.5;
   const showScanner = !result && scan && scan.page > 0;
 
@@ -194,9 +227,14 @@ export default function ParseProgress({
           <span className="ext">{ext}</span>
         </div>
         <div className="pipe-pp-id">
-          <div className="pipe-pp-name">{file.name}</div>
+          <div className="pipe-pp-name">{displayName}</div>
           <div className="pipe-pp-meta">{sizeKb} · разбор прайс-листа</div>
         </div>
+        {!result && (
+          <button className="btn small pp-cancel" disabled={canceling} onClick={cancel}>
+            <Glyph.x size={13} /> {canceling ? "Отмена…" : "Отменить"}
+          </button>
+        )}
         <div className="pipe-pp-pct">
           <b>{Math.round(pct)}%</b>
           <div className="l">{result ? "готово" : "обработка"}</div>

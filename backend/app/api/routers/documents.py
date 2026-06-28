@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import mimetypes
-import queue
-import threading
 import uuid
 from pathlib import Path
 
@@ -14,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.config import settings
-from app.db.session import session_scope
 from app.models import PriceDocument
 from app.schemas.dto import DocumentOut
 from app.services.report import compute_document_breakdown, compute_partner_breakdown, compute_report
@@ -157,51 +154,109 @@ def document_page(doc_id: uuid.UUID, pageno: int, db: Session = Depends(get_db))
     return FileResponse(cache, media_type="image/png")
 
 
+_SSE_HEADERS = {
+    # no-transform + identity stop the Next dev proxy from gzipping the stream
+    # (gzip buffers tiny SSE events until the block fills → UI looks frozen)
+    "Cache-Control": "no-cache, no-transform",
+    "Content-Encoding": "identity",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+}
+
+
 @router.get("/documents/{doc_id}/process-stream")
-def process_stream(doc_id: uuid.UUID):
-    """Run the pipeline in a worker thread and stream live progress events (SSE-style).
+def process_stream(doc_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Tail a background processing job (replay past events, then live).
 
-    Pair with POST /upload?process=false: upload the file, then open this stream to
-    watch extraction → OCR (per page) → normalization tallies → done in real time."""
-    q: queue.Queue = queue.Queue()
-    sentinel = object()
+    Processing runs in a daemon thread independent of this connection, so a page
+    reload doesn't lose it — reconnecting re-attaches to the same job and replays
+    progress. If the document is already finished and no job exists, the stored
+    result is replayed once (no re-processing)."""
+    from app.services.jobs import get_job, start_processing
 
-    def run() -> None:
-        try:
-            with session_scope() as tdb:
-                doc = tdb.get(PriceDocument, doc_id)
-                if doc is None:
-                    q.put({"stage": "error", "message": "document not found"})
-                    return
-                from app.services.processing import process_document
-                process_document(tdb, doc, progress=lambda e: q.put(e))
-        except Exception as exc:  # noqa: BLE001 — surface to the client, never crash silently
-            q.put({"stage": "error", "message": f"{type(exc).__name__}: {exc}"})
-        finally:
-            q.put(sentinel)
+    doc = db.get(PriceDocument, doc_id)
+    if doc is None:
+        raise HTTPException(404, "document not found")
 
-    threading.Thread(target=run, daemon=True).start()
+    job = get_job(str(doc_id))
+    if job is None:
+        status = doc.status.value if hasattr(doc.status, "value") else str(doc.status)
+        if status in ("done", "needs_review", "error"):
+            # already processed in a prior session — replay the stored result, don't re-run
+            from app.services.processing import _preview_items
+            result = document_result(doc_id, db)
+            ev = {"stage": "done", "doc_id": str(doc_id), "summary": result["summary"],
+                  "methods": result["methods"], "preview": result["preview"]}
+
+            def replay():
+                yield ": keep-alive\n\n"
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+            return StreamingResponse(replay(), media_type="text/event-stream", headers=_SSE_HEADERS)
+        job = start_processing(str(doc_id))
 
     def gen():
         yield ": keep-alive\n\n"
+        idx = 0
         while True:
-            ev = q.get()
-            if ev is sentinel:
+            with job.cond:
+                while idx >= len(job.events) and not job.done:
+                    job.cond.wait(timeout=10)
+                evs = job.events[idx:]
+                idx = len(job.events)
+                done = job.done
+            for ev in evs:
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+            if done and idx >= len(job.events):
                 break
-            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+            if not evs:
+                yield ": ping\n\n"  # heartbeat so the proxy keeps the connection open
 
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={
-            # no-transform + identity stop the Next dev proxy from gzipping the stream
-            # (gzip buffers tiny SSE events until the block fills → UI looks frozen)
-            "Cache-Control": "no-cache, no-transform",
-            "Content-Encoding": "identity",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+@router.post("/documents/{doc_id}/cancel")
+def cancel_document(doc_id: uuid.UUID):
+    """Signal a running job to stop. The worker rolls back; the document stays queued."""
+    from app.services.jobs import get_job
+
+    job = get_job(str(doc_id))
+    if job is not None and not job.done:
+        job.cancel.set()
+        return {"canceled": True}
+    return {"canceled": False}
+
+
+@router.delete("/documents/{doc_id}")
+def delete_document(doc_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Delete a document and everything derived from it (cancels any running job first)."""
+    from sqlalchemy import text
+
+    from app.services.jobs import get_job
+
+    doc = db.get(PriceDocument, doc_id)
+    if doc is None:
+        raise HTTPException(404, "document not found")
+    job = get_job(str(doc_id))
+    if job is not None and not job.done:
+        job.cancel.set()
+
+    p = {"d": str(doc_id)}
+    db.execute(text("DELETE FROM price_tier WHERE price_item_id IN (SELECT id FROM price_item WHERE document_id=:d)"), p)
+    db.execute(text("DELETE FROM match_decision WHERE price_item_id IN (SELECT id FROM price_item WHERE document_id=:d)"), p)
+    db.execute(text("UPDATE price_item SET superseded_by_id=NULL WHERE superseded_by_id IN (SELECT id FROM price_item WHERE document_id=:d)"), p)
+    db.execute(text("DELETE FROM price_item WHERE document_id=:d"), p)
+    db.execute(text("DELETE FROM price_document WHERE id=:d"), p)
+    db.commit()
+    return {"deleted": True}
+
+
+@router.post("/documents/purge")
+def purge_documents(status: str = Query("queued"), db: Session = Depends(get_db)):
+    """Bulk-delete all documents in a given status (default: queued) — for clearing the queue."""
+    ids = db.execute(select(PriceDocument.id).where(PriceDocument.status == status)).scalars().all()
+    for did in ids:
+        delete_document(did, db)
+    return {"deleted": len(ids)}
 
 
 def _ref_kv(ref: str) -> dict:

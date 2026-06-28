@@ -369,3 +369,16 @@
 .pipe-pick { padding: 11px 20px; font-size: 14.5px; font-weight: 500; border-radius: var(--radius); }
 .pipe-pick svg { color: var(--accent); }
 .pipe-pick:hover { border-color: var(--accent); background: var(--accent-wash); }
+
+/* cancel button in the progress header */
+.pp-cancel { margin-right: 14px; align-self: center; }
+.pp-cancel:hover { border-color: var(--accent); color: var(--accent); }
+
+/* queue toolbar + per-row delete in the documents table */
+.pipe-queuebar { display: flex; align-items: center; gap: 12px; margin: -6px 2px 14px; font-size: 12.5px; color: var(--muted); }
+.pipe-queuebar span { font-variant-numeric: tabular-nums; }
+.pipe-doc-del { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-s);
+  border: 1px solid transparent; background: transparent; color: var(--muted); cursor: pointer;
+  transition: background .12s var(--ease), color .12s var(--ease), border-color .12s var(--ease); }
+.pipe-doc-del:hover { background: #fdecea; color: var(--accent); border-color: rgba(255,71,19,.25); }
+.pipe-doc-del:disabled { opacity: .4; cursor: not-allowed; }

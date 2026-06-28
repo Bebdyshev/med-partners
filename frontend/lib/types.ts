@@ -75,6 +75,7 @@ export type ProgressEvent =
   | { stage: "normalize"; done: number; total: number; auto: number; review: number; unmatched: number }
   | { stage: "validate" }
   | { stage: "done"; doc_id: string; summary: Record<string, number | string>; methods: Record<string, number>; preview: DocumentItem[] }
+  | { stage: "canceled" }
   | { stage: "error"; message: string };
 
 export type ServiceDescription = {

@@ -72,6 +72,9 @@ export const api = {
   },
 
   documentResult: (id: string) => j<DocumentResult>(`/documents/${id}/result`),
+  cancelDocument: (id: string) => j<{ canceled: boolean }>(`/documents/${id}/cancel`, { method: "POST" }),
+  deleteDocument: (id: string) => j<{ deleted: boolean }>(`/documents/${id}`, { method: "DELETE" }),
+  purgeDocuments: (status = "queued") => j<{ deleted: number }>(`/documents/purge?status=${status}`, { method: "POST" }),
 
   // fetch the bundled demo scan as a File (so it flows through the normal upload path)
   demoFile: async (): Promise<File> => {

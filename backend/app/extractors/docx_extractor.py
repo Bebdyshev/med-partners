@@ -55,7 +55,7 @@ def _harvest_org_name(xml_bytes: bytes) -> str | None:
 class DocxExtractor(BaseExtractor):
     supported_extensions = {"docx"}
 
-    def extract(self, path: Path, progress=None) -> ExtractResult:
+    def extract(self, path: Path, progress=None, should_cancel=None) -> ExtractResult:
         result = ExtractResult()
         with zipfile.ZipFile(path) as z:
             xml_bytes = z.read("word/document.xml")
