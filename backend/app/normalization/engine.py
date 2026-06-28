@@ -135,7 +135,10 @@ class Matcher:
         # Embed the (optionally LLM-cleaned) query text; the LLM judge below still sees the
         # original raw_name, so retrieval gets the clean signal without trusting it blindly.
         queries = [normalize(t) for t in query_texts] if query_texts is not None else [normalize(r) for r in raw_names]
-        qmat = embeddings.encode_queries(queries)        # (n, d) L2-normalized
+        try:
+            qmat = embeddings.encode_queries(queries)    # (n, d) L2-normalized
+        except Exception:  # noqa: BLE001 — API down / out of credits → degrade to local fuzzy
+            return [self._suggest_fuzzy(rn, c, k) for rn, c in zip(raw_names, categories)]
         sims = qmat @ self._emb.T                          # (n, n_entries) cosine
         out: list[list[Suggestion]] = []
         for qi in range(len(raw_names)):

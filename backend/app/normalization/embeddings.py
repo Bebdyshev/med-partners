@@ -33,13 +33,15 @@ def _provider() -> str:
 def _openai_client():
     from openai import OpenAI
 
-    # cap each request so a slow/credit-less API can't hang the pipeline
+    # short timeout so a slow/credit-less API can't hang the pipeline
     key = settings.openai_api_key
-    return OpenAI(api_key=key, timeout=30.0, max_retries=1) if key else OpenAI(timeout=30.0, max_retries=1)
+    return OpenAI(api_key=key, timeout=8.0, max_retries=0) if key else OpenAI(timeout=8.0, max_retries=0)
 
 
-def _embed_batch_with_retry(client, model: str, chunk: list[str], attempts: int = 6):
+def _embed_batch_with_retry(client, model: str, chunk: list[str], attempts: int = 2):
     import time
+
+    from app.normalization import _breaker
 
     delay = 1.0
     last: Exception | None = None
@@ -49,13 +51,17 @@ def _embed_batch_with_retry(client, model: str, chunk: list[str], attempts: int 
         except Exception as exc:  # noqa: BLE001 — rate limits / transient API errors
             last = exc
             time.sleep(delay)
-            delay = min(delay * 2, 20.0)
+            delay = min(delay * 2, 4.0)
+    _breaker.trip()  # API failing (no credits / down) → skip OpenAI for a while
     raise last  # type: ignore[misc]
 
 
 def _encode_openai(texts: list[str]) -> np.ndarray:
     from concurrent.futures import ThreadPoolExecutor
 
+    from app.normalization import _breaker
+    if _breaker.is_open():
+        raise RuntimeError("openai breaker open")  # skip fast → caller falls back to fuzzy
     client = _openai_client()
     model = settings.openai_embedding_model
     batches = [
@@ -100,6 +106,9 @@ def available() -> bool:
     if not settings.use_embeddings:
         return False
     if _provider() == "openai":
+        from app.normalization import _breaker
+        if _breaker.is_open():
+            return False
         try:
             import openai  # noqa: F401
         except Exception:  # noqa: BLE001

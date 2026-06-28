@@ -40,6 +40,9 @@ def available() -> bool:
         return False
     if settings.llm_provider == "ollama":
         return True  # Ollama needs no API key
+    from app.normalization import _breaker
+    if _breaker.is_open():
+        return False
     return bool(settings.openai_api_key or os.environ.get("OPENAI_API_KEY"))
 
 
@@ -48,16 +51,16 @@ def _client():
     from openai import OpenAI
 
     if settings.llm_provider == "ollama":
-        return OpenAI(base_url=settings.ollama_base_url, api_key="ollama", timeout=30.0, max_retries=1)
+        return OpenAI(base_url=settings.ollama_base_url, api_key="ollama", timeout=8.0, max_retries=0)
     key = settings.openai_api_key
-    return OpenAI(api_key=key, timeout=30.0, max_retries=1) if key else OpenAI(timeout=30.0, max_retries=1)
+    return OpenAI(api_key=key, timeout=8.0, max_retries=0) if key else OpenAI(timeout=8.0, max_retries=0)
 
 
 def _clean_batch(batch: list[str]) -> dict[str, str]:
     """Map each raw name in the batch to its cleaned form; fall back to raw on failure."""
     user = "Строки:\n" + "\n".join(f"{i}. {raw}" for i, raw in enumerate(batch))
     delay = 1.0
-    for _ in range(5):
+    for _ in range(2):
         try:
             resp = _client().chat.completions.create(
                 model=settings.active_llm_model,
@@ -78,7 +81,9 @@ def _clean_batch(batch: list[str]) -> dict[str, str]:
             return {n: out.get(n, n) for n in batch}  # ensure every name has a value
         except Exception:  # noqa: BLE001 — rate limits / transient
             time.sleep(delay)
-            delay = min(delay * 2, 20.0)
+            delay = min(delay * 2, 4.0)
+    from app.normalization import _breaker
+    _breaker.trip()  # API failing (no credits / down) → skip OpenAI for a while
     return {n: n for n in batch}  # give up -> raw names
 
 

@@ -37,6 +37,9 @@ def available() -> bool:
         return False
     if settings.llm_provider == "ollama":
         return True  # Ollama needs no API key
+    from app.normalization import _breaker
+    if _breaker.is_open():
+        return False
     return bool(settings.openai_api_key or os.environ.get("OPENAI_API_KEY"))
 
 
@@ -45,9 +48,9 @@ def _client():
     from openai import OpenAI
 
     if settings.llm_provider == "ollama":
-        return OpenAI(base_url=settings.ollama_base_url, api_key="ollama", timeout=30.0, max_retries=1)
+        return OpenAI(base_url=settings.ollama_base_url, api_key="ollama", timeout=8.0, max_retries=0)
     key = settings.openai_api_key
-    return OpenAI(api_key=key, timeout=30.0, max_retries=1) if key else OpenAI(timeout=30.0, max_retries=1)
+    return OpenAI(api_key=key, timeout=8.0, max_retries=0) if key else OpenAI(timeout=8.0, max_retries=0)
 
 
 def _judge_one(raw_name: str, category: str | None, candidates: list[str]) -> tuple[int, float]:
