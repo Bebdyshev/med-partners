@@ -290,9 +290,16 @@
 .rv-frag-open { width: fit-content; }
 
 /* ============================================================
+   PROCESSING BODY — stages on the left, live activity on the right
+   ============================================================ */
+.pp-body { padding: 4px 0 2px; }
+.pp-body.live { display: grid; grid-template-columns: minmax(300px, 360px) 1fr; gap: 30px; align-items: start; }
+.pp-side { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+
+/* ============================================================
    LIVE SCANNER — actual page image read with a sweeping scan line
    ============================================================ */
-.pp-scanner { margin-top: 18px; display: grid; grid-template-columns: minmax(0, 280px) 1fr; gap: 18px; align-items: start; }
+.pp-scanner { display: grid; grid-template-columns: minmax(0, 240px) 1fr; gap: 18px; align-items: start; }
 .pp-scan-frame { position: relative; border: 1px solid var(--rule-strong); border-radius: var(--radius);
   overflow: hidden; background: var(--paper-3); box-shadow: var(--shadow); aspect-ratio: 3 / 4; }
 .pp-scan-img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
@@ -311,7 +318,7 @@
 .pp-scan-rows b { color: var(--accent); font-family: var(--font-display); font-variant-numeric: tabular-nums; }
 
 /* live normalization tallies (real running counts) */
-.pp-tally { margin-top: 18px; border: 1px solid var(--rule); border-radius: var(--radius); padding: 14px 16px; background: var(--paper-2); }
+.pp-tally { border: 1px solid var(--rule); border-radius: var(--radius); padding: 14px 16px; background: var(--paper-2); }
 .pp-tally-head { font-size: 13px; color: var(--ink-2); margin-bottom: 12px; }
 .pp-tally-head b { color: var(--ink); font-family: var(--font-display); font-variant-numeric: tabular-nums; }
 .pp-tally-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -340,6 +347,9 @@
 .pp-pv-tag.review { color: var(--amber); } .pp-pv-tag.none { color: var(--muted); }
 .pp-pv-price { font-family: var(--font-display); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
 
+@media (max-width: 900px) {
+  .pp-body.live { grid-template-columns: 1fr; gap: 22px; }
+}
 @media (max-width: 640px) {
   .pp-scanner { grid-template-columns: 1fr; }
   .pp-tally-cells { grid-template-columns: 1fr; }

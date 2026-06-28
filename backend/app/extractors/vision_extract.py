@@ -38,7 +38,7 @@ _SYS = (
     '"price_nonresident": number|null}, ...]}.'
 )
 
-_MAX_RETRIES = 4
+_MAX_RETRIES = 2
 _BASE_DELAY = 1.0
 
 
@@ -58,12 +58,14 @@ def available() -> bool:
 def _client():
     from openai import OpenAI
 
+    # cap each request so a slow/rate-limited API can never hang the stream/UI
     if settings.llm_provider == "ollama":
-        return OpenAI(base_url=settings.ollama_base_url, api_key="ollama")
-    return OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else OpenAI()
+        return OpenAI(base_url=settings.ollama_base_url, api_key="ollama", timeout=40.0, max_retries=1)
+    key = settings.openai_api_key
+    return OpenAI(api_key=key, timeout=40.0, max_retries=1) if key else OpenAI(timeout=40.0, max_retries=1)
 
 
-def _render_png(pdf_path: Path, page_index: int, dpi: int = 200) -> bytes:
+def _render_png(pdf_path: Path, page_index: int, dpi: int = 150) -> bytes:
     """Rasterize a single page to PNG bytes with PyMuPDF (~200 DPI)."""
     import fitz  # PyMuPDF
 

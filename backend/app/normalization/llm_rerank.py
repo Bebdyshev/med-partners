@@ -45,8 +45,9 @@ def _client():
     from openai import OpenAI
 
     if settings.llm_provider == "ollama":
-        return OpenAI(base_url=settings.ollama_base_url, api_key="ollama")
-    return OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else OpenAI()
+        return OpenAI(base_url=settings.ollama_base_url, api_key="ollama", timeout=30.0, max_retries=1)
+    key = settings.openai_api_key
+    return OpenAI(api_key=key, timeout=30.0, max_retries=1) if key else OpenAI(timeout=30.0, max_retries=1)
 
 
 def _judge_one(raw_name: str, category: str | None, candidates: list[str]) -> tuple[int, float]:

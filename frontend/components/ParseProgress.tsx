@@ -95,7 +95,7 @@ export default function ParseProgress({
         case "ocr_done":
           setRecognized((r) => r + ev.rows); break;
         case "extract_done":
-          setStage(2); setPctTarget(52);
+          setStage(2); setPctTarget(52); setScan(null);
           setTally({ done: 0, total: ev.rows, auto: 0, review: 0, unmatched: 0 });
           break;
         case "items":
@@ -199,74 +199,81 @@ export default function ParseProgress({
 
       <div className={`pipe-pp-bar ${done ? "full" : ""}`}><i style={{ width: `${pct}%` }} /></div>
 
-      <div className="pipe-pp-stages">
-        {STAGES.map((s, i) => {
-          const cls = i < stage ? "done" : i === stage ? "active" : "";
-          return (
-            <div className={`pipe-stage ${cls}`} key={s.lbl}>
-              <span className="mk">
-                {i < stage ? <Glyph.check size={13} /> : i === stage ? <span className="dot" /> : i + 1}
-              </span>
-              <div>
-                <div className="lbl">{s.lbl}</div>
-                <div className="det">{s.det}</div>
+      <div className={`pp-body ${!result ? "live" : ""}`}>
+        <div className="pipe-pp-stages">
+          {STAGES.map((s, i) => {
+            const cls = i < stage ? "done" : i === stage ? "active" : "";
+            return (
+              <div className={`pipe-stage ${cls}`} key={s.lbl}>
+                <span className="mk">
+                  {i < stage ? <Glyph.check size={13} /> : i === stage ? <span className="dot" /> : i + 1}
+                </span>
+                <div>
+                  <div className="lbl">{s.lbl}</div>
+                  <div className="det">{s.det}</div>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+
+        {/* right column — live activity beside the stages */}
+        {!result && (
+          <div className="pp-side">
+            {/* live page scanner — the actual page being read, with a sweeping scan line */}
+            {showScanner && (
+              <div className="pp-scanner">
+                <div className="pp-scan-frame">
+                  <img
+                    key={scan!.page}
+                    src={api.pageImageUrl(docIdRef.current, scan!.page)}
+                    alt={`страница ${scan!.page}`}
+                    className="pp-scan-img"
+                  />
+                  <div className="pp-scan-tint" />
+                  <div className="pp-scanline" />
+                </div>
+                <div className="pp-scan-meta">
+                  <div className="pp-scan-page">
+                    <span className="pp-live" /> Распознавание страницы <b>{scan!.page}</b> из {scan!.total}
+                  </div>
+                  <div className="pp-scan-rows">распознано <b>{recognized}</b> позиций</div>
+                </div>
+              </div>
+            )}
+
+            {/* reading skeleton — before the first page image (or for non-scan files) */}
+            {!showScanner && stage <= 1 && (
+              <div className="pipe-pp-ticker">
+                <div className="pipe-ticker-cap"><span className="pipe-live" /> Поток извлечения</div>
+                <div className="pipe-ticker-rows">
+                  {TROWS.map((r, i) => (
+                    <div className="pipe-trow" key={i}>
+                      <span className="nm shimmer" style={{ width: `${r.w}%` }} />
+                      <span className="px shimmer" />
+                      <span className={`st ${r.st}`} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* live normalization tallies — real running counts */}
+            {tally && stage >= 2 && (
+              <div className="pp-tally">
+                <div className="pp-tally-head">
+                  Нормализовано <b>{tally.done}</b> из {tally.total}
+                </div>
+                <div className="pp-tally-cells">
+                  <div className="pp-tally-cell auto"><b>{tally.auto}</b><span>авто-сопоставлено</span></div>
+                  <div className="pp-tally-cell review"><b>{tally.review}</b><span>на проверку</span></div>
+                  <div className="pp-tally-cell none"><b>{tally.unmatched}</b><span>не найдено</span></div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
-
-      {/* live page scanner — the actual page being read, with a sweeping scan line */}
-      {showScanner && (
-        <div className="pp-scanner">
-          <div className="pp-scan-frame">
-            <img
-              key={scan!.page}
-              src={api.pageImageUrl(docIdRef.current, scan!.page)}
-              alt={`страница ${scan!.page}`}
-              className="pp-scan-img"
-            />
-            <div className="pp-scan-tint" />
-            <div className="pp-scanline" />
-          </div>
-          <div className="pp-scan-meta">
-            <div className="pp-scan-page">
-              <span className="pp-live" /> Распознавание страницы <b>{scan!.page}</b> из {scan!.total}
-            </div>
-            <div className="pp-scan-rows">распознано <b>{recognized}</b> позиций</div>
-          </div>
-        </div>
-      )}
-
-      {/* reading skeleton — shown before the first page image (or for non-scan files) */}
-      {!result && !showScanner && stage <= 1 && (
-        <div className="pipe-pp-ticker">
-          <div className="pipe-ticker-cap"><span className="pipe-live" /> Поток извлечения</div>
-          <div className="pipe-ticker-rows">
-            {TROWS.map((r, i) => (
-              <div className="pipe-trow" key={i}>
-                <span className="nm shimmer" style={{ width: `${r.w}%` }} />
-                <span className="px shimmer" />
-                <span className={`st ${r.st}`} />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* live normalization tallies — real running counts */}
-      {!result && tally && stage >= 2 && (
-        <div className="pp-tally">
-          <div className="pp-tally-head">
-            Нормализовано <b>{tally.done}</b> из {tally.total}
-          </div>
-          <div className="pp-tally-cells">
-            <div className="pp-tally-cell auto"><b>{tally.auto}</b><span>авто-сопоставлено</span></div>
-            <div className="pp-tally-cell review"><b>{tally.review}</b><span>на проверку</span></div>
-            <div className="pp-tally-cell none"><b>{tally.unmatched}</b><span>не найдено</span></div>
-          </div>
-        </div>
-      )}
 
       {result?.kind === "done" && (
         <div className="pipe-result">
