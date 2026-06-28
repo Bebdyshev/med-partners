@@ -39,14 +39,16 @@ async def upload(
         doc = register_file(db, f, allow_duplicate=not dedupe)
         if doc is None:
             skipped += 1
-            # surface the already-stored document so the client can show its data
-            ex = db.execute(
+            # surface the already-stored document so the client can show its data —
+            # prefer a fully-processed copy (parsed_at set) over an interrupted/queued one
+            dupes = db.execute(
                 select(PriceDocument)
                 .where(PriceDocument.file_hash == _sha256(f))
                 .order_by(PriceDocument.created_at.desc())
-            ).scalars().first()
-            if ex is not None:
-                existing.append(str(ex.id))
+            ).scalars().all()
+            if dupes:
+                best = next((d for d in dupes if d.parsed_at is not None), dupes[0])
+                existing.append(str(best.id))
             continue
         created.append(str(doc.id))
     db.commit()
