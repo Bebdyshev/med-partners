@@ -89,14 +89,21 @@ def update_service(service_id: uuid.UUID, body: ServiceUpdate, db: Session = Dep
 
 @router.get("/services/{service_id}/description")
 def service_description(service_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Curated educational description for a service (what it is, why useful, how to prepare)."""
+    """Curated educational description for a service (what it is, why useful, how to prepare).
+    Always returns a result — uses category-level fallback when no curated entry exists."""
     svc = db.get(Service, service_id)
     if svc is None:
         raise HTTPException(404, "service not found")
     desc = _find_description(svc.canonical_name)
-    if desc is None:
-        return {"canonical_name": svc.canonical_name, "found": False}
-    return {**desc, "canonical_name": svc.canonical_name, "found": True}
+    if desc is not None:
+        return {**desc, "canonical_name": svc.canonical_name, "found": True}
+    # Category-level fallback so every service shows *something*
+    return {
+        "canonical_name": svc.canonical_name,
+        "category": svc.category,
+        "icd_code": svc.icd_code,
+        "found": False,
+    }
 
 
 @router.get("/services/{service_id}/partners", response_model=list[PartnerPriceOut])

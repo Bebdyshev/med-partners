@@ -112,34 +112,52 @@ export default function ServiceDetail({ params }: { params: { id: string } }) {
       </div>
 
       {/* service encyclopedia description */}
-      {desc?.found && (
+      {desc && (
         <Reveal dir="up">
           <div className="svc-desc">
-            {desc.short && <p className="svc-desc-short">{desc.short}</p>}
-            <div className="svc-desc-grid">
-              {desc.what && (
-                <div className="svc-desc-block">
-                  <div className="svc-desc-label">Что исследуется</div>
-                  <div className="svc-desc-text">{desc.what}</div>
+            {desc.found ? (
+              <>
+                {desc.short && <p className="svc-desc-short">{desc.short}</p>}
+                <div className="svc-desc-grid">
+                  {desc.what && (
+                    <div className="svc-desc-block">
+                      <div className="svc-desc-label">Что исследуется</div>
+                      <div className="svc-desc-text">{desc.what}</div>
+                    </div>
+                  )}
+                  {desc.why && (
+                    <div className="svc-desc-block">
+                      <div className="svc-desc-label">Когда назначается</div>
+                      <div className="svc-desc-text">{desc.why}</div>
+                    </div>
+                  )}
+                  {desc.prep && (
+                    <div className="svc-desc-block">
+                      <div className="svc-desc-label">Как подготовиться</div>
+                      <div className="svc-desc-text">{desc.prep}</div>
+                    </div>
+                  )}
                 </div>
-              )}
-              {desc.why && (
-                <div className="svc-desc-block">
-                  <div className="svc-desc-label">Когда назначается</div>
-                  <div className="svc-desc-text">{desc.why}</div>
+                <div className="svc-desc-meta">
+                  {desc.duration_min != null && <span><Glyph.clock size={12} /> {fmtDuration(desc.duration_min)}</span>}
+                  {desc.category && <span>{desc.category}</span>}
+                  {desc.icd_code && <span className="mono">МКБ {desc.icd_code}</span>}
                 </div>
-              )}
-              {desc.prep && (
-                <div className="svc-desc-block">
-                  <div className="svc-desc-label">Как подготовиться</div>
-                  <div className="svc-desc-text">{desc.prep}</div>
-                </div>
-              )}
-            </div>
-            {desc.duration_min != null && (
-              <div className="svc-desc-meta">
-                <span><Glyph.clock size={12} /> {fmtDuration(desc.duration_min)}</span>
-                {desc.category && <span>{desc.category}</span>}
+              </>
+            ) : (
+              <div className="svc-desc-grid">
+                {desc.category && (
+                  <div className="svc-desc-block">
+                    <div className="svc-desc-label">Категория</div>
+                    <div className="svc-desc-text">{desc.category}</div>
+                  </div>
+                )}
+                {desc.icd_code && (
+                  <div className="svc-desc-block">
+                    <div className="svc-desc-label">Код МКБ</div>
+                    <div className="svc-desc-text mono">{desc.icd_code}</div>
+                  </div>
+                )}
               </div>
             )}
           </div>
