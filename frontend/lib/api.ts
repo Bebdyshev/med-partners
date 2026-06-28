@@ -11,7 +11,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 import type {
-  AiCompare, Dashboard, DashboardDocs, DashboardPartners, DocPreview, DocumentRow, Partner, PartnerPrice, ProgressEvent, SearchResult, Service, ServiceDescription, ServicePrice, Unmatched,
+  AiCompare, Dashboard, DashboardDocs, DashboardPartners, DocPreview, DocumentResult, DocumentRow, Partner, PartnerPrice, ProgressEvent, SearchResult, Service, ServiceDescription, ServicePrice, Unmatched,
 } from "./types";
 
 export const api = {
@@ -65,11 +65,13 @@ export const api = {
   upload: (file: File, asynchronous = false, process = true, dedupe = true) => {
     const fd = new FormData();
     fd.append("file", file);
-    return j<{ created: string[]; skipped_duplicates: number; queued: boolean }>(
+    return j<{ created: string[]; existing: string[]; skipped_duplicates: number; queued: boolean }>(
       `/upload?asynchronous=${asynchronous}&process=${process}&dedupe=${dedupe}`,
       { method: "POST", body: fd }
     );
   },
+
+  documentResult: (id: string) => j<DocumentResult>(`/documents/${id}/result`),
 
   // fetch the bundled demo scan as a File (so it flows through the normal upload path)
   demoFile: async (): Promise<File> => {

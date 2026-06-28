@@ -27,8 +27,7 @@ const TROWS = [
 
 type Tally = { done: number; total: number; auto: number; review: number; unmatched: number };
 type Result =
-  | { kind: "done"; items: number; methods: [string, number][]; status: string; docId: string; preview: DocumentItem[]; auto: number; review: number; unmatched: number }
-  | { kind: "dup" }
+  | { kind: "done"; items: number; methods: [string, number][]; status: string; docId: string; preview: DocumentItem[]; auto: number; review: number; unmatched: number; fromCache?: boolean }
   | { kind: "error"; msg: string };
 
 function MatchMark({ status }: { status: string }) {
@@ -123,18 +122,37 @@ export default function ParseProgress({
       }
     }
 
+    async function showExisting(docId: string) {
+      setStage(5); setPctTarget(100); setScan(null);
+      try {
+        const r = await api.documentResult(docId);
+        if (!alive) return;
+        const m = Object.entries(r.methods) as [string, number][];
+        const items = m.reduce((a, [, n]) => a + n, 0) || r.summary.items;
+        settle({
+          kind: "done", items, methods: m, status: String(r.summary.status), docId,
+          preview: r.preview || [], auto: r.summary.auto, review: r.summary.review, unmatched: r.summary.unmatched,
+          fromCache: true,
+        });
+        onComplete();
+      } catch (e) {
+        settle({ kind: "error", msg: (e as Error).message });
+      }
+    }
+
     (async () => {
       let up;
       try {
-        // process=false (we drive processing via the stream); dedupe off so any picked
-        // file — including already-ingested samples — always replays the live flow
-        up = await api.upload(file, false, false, false);
+        // process=false: we drive processing via the stream. dedupe stays on — a file
+        // already in the base falls back to its stored result instead of re-running.
+        up = await api.upload(file, false, false, true);
       } catch (e) {
         settle({ kind: "error", msg: (e as Error).message }); return;
       }
       if (!alive) return;
       if (!up.created.length) {
-        if (up.skipped_duplicates) { setStage(5); setPctTarget(100); settle({ kind: "dup" }); }
+        // duplicate (or nothing new) — show what's already stored for this file
+        if (up.existing && up.existing.length) { await showExisting(up.existing[0]); }
         else settle({ kind: "error", msg: "файл не создан" });
         return;
       }
@@ -291,27 +309,16 @@ export default function ParseProgress({
             </div>
           )}
 
-          <div className="pipe-note ok">
-            <span className="ic"><Glyph.check size={15} /></span>
-            Готово — документ в реестре.
+          <div className={`pipe-note ${result.fromCache ? "warn" : "ok"}`}>
+            <span className="ic">{result.fromCache ? <Glyph.layers size={15} /> : <Glyph.check size={15} />}</span>
+            {result.fromCache
+              ? "Файл уже был обработан ранее — показаны сохранённые данные из базы."
+              : "Готово — документ в реестре."}
           </div>
           <div className="pipe-foot">
             <div className="spacer" />
             <a className="btn small" href="/review"><Glyph.review size={13} /> В очередь верификации</a>
             <button className="btn small primary" onClick={onClose}><Glyph.upload size={13} /> Загрузить ещё</button>
-          </div>
-        </div>
-      )}
-
-      {result?.kind === "dup" && (
-        <div className="pipe-result">
-          <div className="pipe-note warn">
-            <span className="ic"><Glyph.layers size={15} /></span>
-            Дубликат — файл уже есть в базе (дедуп по хэшу).
-          </div>
-          <div className="pipe-foot">
-            <div className="spacer" />
-            <button className="btn small primary" onClick={onClose}>Загрузить другой</button>
           </div>
         </div>
       )}

@@ -88,6 +88,36 @@ def get_document_file(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/documents/{doc_id}/result")
+def document_result(doc_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Stored parse result for an already-processed document — used as the fallback
+    when an upload is a duplicate (show what's already in the base, no re-run)."""
+    from app.models import PriceItem
+    from app.models.enums import MatchStatus
+    from app.services.processing import _preview_items
+
+    doc = db.get(PriceDocument, doc_id)
+    if doc is None:
+        raise HTTPException(404, "document not found")
+    items = db.execute(
+        select(PriceItem).where(PriceItem.document_id == doc_id)
+    ).scalars().all()
+
+    def _st(it) -> str:
+        return it.match_status.value if hasattr(it.match_status, "value") else str(it.match_status)
+
+    auto = sum(1 for i in items if _st(i) == MatchStatus.auto.value)
+    review = sum(1 for i in items if _st(i) == MatchStatus.review.value)
+    unmatched = sum(1 for i in items if _st(i) == MatchStatus.unmatched.value)
+    status = doc.status.value if hasattr(doc.status, "value") else str(doc.status)
+    return {
+        "summary": {"items": len(items), "auto": auto, "review": review,
+                    "unmatched": unmatched, "status": status},
+        "methods": doc.method_summary or {},
+        "preview": _preview_items(db, doc_id, 8),
+    }
+
+
 @router.get("/demo-file")
 def demo_file():
     """Serve a small scanned price-list for the live demo (smallest PDF in data/)."""

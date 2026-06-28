@@ -5,11 +5,12 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.models import PriceDocument
-from app.services.ingestion import register_file
+from app.services.ingestion import _sha256, register_file
 
 router = APIRouter()
 
@@ -32,11 +33,20 @@ async def upload(
     from app.services.ingestion import _iter_files
 
     created: list[str] = []
+    existing: list[str] = []
     skipped = 0
     for f in _iter_files(tmp):
         doc = register_file(db, f, allow_duplicate=not dedupe)
         if doc is None:
             skipped += 1
+            # surface the already-stored document so the client can show its data
+            ex = db.execute(
+                select(PriceDocument)
+                .where(PriceDocument.file_hash == _sha256(f))
+                .order_by(PriceDocument.created_at.desc())
+            ).scalars().first()
+            if ex is not None:
+                existing.append(str(ex.id))
             continue
         created.append(str(doc.id))
     db.commit()
@@ -55,4 +65,4 @@ async def upload(
                 process_document(db, doc)
             db.commit()
 
-    return {"created": created, "skipped_duplicates": skipped, "queued": process}
+    return {"created": created, "existing": existing, "skipped_duplicates": skipped, "queued": process}

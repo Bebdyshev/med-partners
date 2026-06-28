@@ -58,6 +58,12 @@ export type DocumentItem = {
   amount_kzt: string | null;
 };
 
+export type DocumentResult = {
+  summary: { items: number; auto: number; review: number; unmatched: number; status: string };
+  methods: Record<string, number>;
+  preview: DocumentItem[];
+};
+
 // Live progress events streamed from /documents/{id}/process-stream
 export type ProgressEvent =
   | { stage: "read"; filename?: string; format?: string }
