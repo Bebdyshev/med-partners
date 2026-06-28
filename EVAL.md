@@ -1,5 +1,10 @@
 # MedArchive — Normalization Eval
 
+> **Это изолированный замер ТОЛЬКО по сигналу «имя»** (без code-first, на модели e5-base).
+> Полный пайплайн (code-first + vision-OCR + эмбеддинг + LLM-судья) на реальном архиве даёт
+> **79.7 % автосопоставления** — см. актуальные цифры в [`REPORT.md`](REPORT.md). Таблица ниже
+> показывает вклад только семантической стадии и почему code-first критичен.
+
 Ground truth: **2938** (raw_name, category) labels derived from exact tariff-code matches (zero manual labeling). Matcher (NAME-only signal) measured against them.
 
 Model: `intfloat/multilingual-e5-base`

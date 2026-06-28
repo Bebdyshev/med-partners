@@ -1,34 +1,53 @@
-# MedArchive — Quality Report
+# MedArchive — отчёт о качестве обработки
 
-Processing the provided sample archive (`data/`) against the organizer dictionary `Справочник услуг.xlsx`.
+Обработка предоставленного архива (`data/`) против справочника `Справочник услуг.xlsx`.
+Цифры — из живого `/dashboard/stats` и `/dashboard/documents` на текущем состоянии БД.
 
-## Aggregate
+## Сводка
 
-- Documents processed: **10** ({'needs_review': 10})
-- Price items extracted: **14554** (active after versioning: **12103**, archived/superseded: 2451)
-- Target dictionary services: **1230**
-- Normalization vs real dictionary: auto **5452** (**37.5%**), review 8064, unmatched 1038, manual 0
-- Items flagged by validation: **1150**
+- Документов обработано: **10** (все в статусе `needs_review` — есть позиции для ручной проверки)
+- Позиций извлечено: **18 415** (активных после версионирования: **12 421**, архивировано/superseded: **5 994**)
+- Услуг в справочнике: **1 230**
+- Нормализация: **auto 14 668 (79.7 %)**, review 920 (5.0 %), unmatched 2 825 (15.3 %), manual 2
+- Помечено валидацией: **1 239** позиций
+- Методы извлечения (по всем позициям): `xlsx` 6 880, `pdf_ocr` 5 487, `xls` 2 883, `docx` 2 623, `pdf_text` 542
 
-### How to read the normalization numbers
+### Как читать цифры нормализации
 
-- **auto** — score ≥ 0.85 (cosine/fuzzy blend), matched without a human.
-- **review** — a ranked candidate exists (0.60–0.85) → operator confirms in `/unmatched`.
-- **unmatched** — no plausible candidate (often a service genuinely absent from the dictionary, e.g. specific allergen panels).
-- ~92% of items have a ranked candidate, so operator work is *confirm/correct*, not *search*.
-- Auto-rate is precision-first: sampling shows matches below 0.85 are mostly wrong, so lowering the threshold to reach the spec's 70% goal would inject bad matches. Higher auto-rate needs a medical-domain embedding model or a richer synonym set, not threshold gaming.
+- **auto** — score ≥ порога (code-first 100 % + блок эмбеддинг/LLM-судья): сопоставлено без человека.
+- **review** — есть ранжированный кандидат → оператор подтверждает в `/unmatched`.
+- **unmatched** — правдоподобного кандидата нет (часто услуга реально отсутствует в справочнике).
+- **Цель ТЗ ≥70 % автосопоставления — превышена: 79.7 %.** Решающий вклад — code-first
+  (точное совпадение тарифного кода до сопоставления по имени) и **vision-OCR** сканов
+  (структурированные строки с разделёнными код/имя/цена вместо «склеенного» текстового слоя).
 
-## Per-document
+## По документам
 
-| File | Format | Status | Items | Tiers | Extraction methods |
-|---|---|---|---:|---:|---|
-| Клиника 1 2026.pdf | pdf | needs_review | 32 | 32 | {'pdf_text': 32} |
-| Клиника 1 прайс 2024.docx | docx | needs_review | 2623 | 2623 | {'docx': 2623} |
-| Клиника 2 прайс 2025 год.PDF | pdf | needs_review | 717 | 717 | {'pdf_text': 717} |
-| Клиника 2 прайс 2026.pdf | pdf | needs_review | 100 | 148 | {'pdf_text': 100} |
-| Клиника 3 прайс 2026.PDF | pdf | needs_review | 739 | 1391 | {'pdf_text': 739} |
-| Клиника 4 прайс 2026.pdf | pdf | needs_review | 355 | 1039 | {'pdf_ocr': 7, 'pdf_text': 348} |
-| Клиника 5 прайс 2025.pdf | pdf | needs_review | 225 | 243 | {'pdf_text': 225} |
-| Клиника 6 прайс 2026.xlsx | xlsx | needs_review | 5026 | 20094 | {'xlsx': 5026} |
-| Клиника 7_Прайс 2026.xls | xls | needs_review | 2883 | 8649 | {'xls': 2883} |
-| Клиника 8 2026.xlsx | xlsx | needs_review | 1854 | 1854 | {'xlsx': 1854} |
+| Файл | Формат | Статус | Позиций | auto | review | unmatched | flagged | Методы |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| Клиника 6 прайс 2026.xlsx | xlsx | needs_review | 5026 | 4126 | 148 | 751 | 12 | xlsx 5026 |
+| Клиника 7_Прайс 2026.xls | xls | needs_review | 2883 | 2092 | 151 | 640 | 11 | xls 2883 |
+| Клиника 1 прайс 2024.docx | docx | needs_review | 2623 | 2208 | 206 | 209 | 21 | docx 2623 |
+| Клиника 1 2026.pdf | pdf | needs_review | 2609 | 2209 | 112 | 288 | 846 | pdf_ocr 2070, pdf_text 539 |
+| Клиника 8 2026.xlsx | xlsx | needs_review | 1854 | 1449 | 56 | 349 | 1 | xlsx 1854 |
+| Клиника 2 прайс 2025 год.PDF | pdf | needs_review | 1074 | 696 | 114 | 264 | 82 | pdf_ocr 1074 |
+| Клиника 2 прайс 2026.pdf | pdf | needs_review | 781 | 594 | 46 | 140 | 170 | pdf_ocr 778, pdf_text 3 |
+| Клиника 3 прайс 2026.PDF | pdf | needs_review | 779 | 704 | 29 | 46 | 45 | pdf_ocr 779 |
+| Клиника 4 прайс 2026.pdf | pdf | needs_review | 431 | 298 | 39 | 94 | 31 | pdf_ocr 431 |
+| Клиника 5 прайс 2025.pdf | pdf | needs_review | 355 | 292 | 19 | 44 | 20 | pdf_ocr 355 |
+
+## Валидация
+
+Из 18 415 позиций **1 239** помечены правилами качества (см. таблицу правил в
+[`README.md`](README.md) / [`ARCHITECTURE.md`](ARCHITECTURE.md)): аномалии цены
+относительно прошлой версии, нерезидент < резидент, низкая уверенность OCR, дубликаты и др.
+Любой флаг переводит документ в `needs_review` и подсвечивает позицию оператору.
+
+## Версионирование
+
+Из 18 415 извлечённых позиций активны **12 421**, остальные **5 994** архивированы
+(`is_active=false`, связь `superseded_by_id`) при появлении более свежих прайсов той же
+клиники — история цен сохраняется бессрочно (archive-on-change).
+
+> Цифры воспроизводятся: `python -m app.cli report` либо `GET /dashboard/stats` и
+> `GET /dashboard/documents`.
