@@ -349,3 +349,8 @@
 @media (prefers-reduced-motion: reduce) {
   .pp-scanline { animation: none; top: 50%; }
 }
+
+/* primary file-picker — scan-price look, sized up as the sole CTA */
+.pipe-pick { padding: 11px 20px; font-size: 14.5px; font-weight: 500; border-radius: var(--radius); }
+.pipe-pick svg { color: var(--accent); }
+.pipe-pick:hover { border-color: var(--accent); background: var(--accent-wash); }

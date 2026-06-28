@@ -39,12 +39,10 @@ function MatchMark({ status }: { status: string }) {
 
 export default function ParseProgress({
   file,
-  demo = false,
   onComplete,
   onClose,
 }: {
   file: File;
-  demo?: boolean;
   onComplete: () => void;
   onClose: () => void;
 }) {
@@ -128,8 +126,9 @@ export default function ParseProgress({
     (async () => {
       let up;
       try {
-        // process=false (we drive processing via the stream), dedupe off for demo so it re-runs
-        up = await api.upload(file, false, false, !demo);
+        // process=false (we drive processing via the stream); dedupe off so any picked
+        // file — including already-ingested samples — always replays the live flow
+        up = await api.upload(file, false, false, false);
       } catch (e) {
         settle({ kind: "error", msg: (e as Error).message }); return;
       }
