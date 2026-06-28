@@ -50,6 +50,7 @@ export default function ParseProgress({
   const [pctTarget, setPctTarget] = useState(2);
   const [scan, setScan] = useState<{ page: number; total: number } | null>(null);
   const [recognized, setRecognized] = useState(0);
+  const [parseProg, setParseProg] = useState<{ done: number; total: number } | null>(null);
   const [tally, setTally] = useState<Tally | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const docIdRef = useRef<string>("");
@@ -96,12 +97,17 @@ export default function ParseProgress({
           setRecognized((r) => r + ev.rows); break;
         case "extract_done":
           setStage(2); setPctTarget(52); setScan(null);
-          setTally({ done: 0, total: ev.rows, auto: 0, review: 0, unmatched: 0 });
+          setParseProg({ done: 0, total: ev.rows });
           break;
-        case "items":
+        case "parse":
+          setStage(2);
+          setParseProg({ done: ev.done, total: ev.total });
+          setPctTarget(52 + (ev.done / Math.max(1, ev.total)) * 12);
+          break;
+        case "normalize":
           setStage(3);
           setTally({ done: ev.done, total: ev.total, auto: ev.auto, review: ev.review, unmatched: ev.unmatched });
-          setPctTarget(52 + (ev.done / Math.max(1, ev.total)) * 40);
+          setPctTarget(66 + (ev.done / Math.max(1, ev.total)) * 28);
           break;
         case "validate":
           setStage(4); setPctTarget(96); break;
@@ -258,12 +264,24 @@ export default function ParseProgress({
               </div>
             )}
 
+            {/* live parse counter — позиции и цены разбираются */}
+            {stage === 2 && parseProg && (
+              <div className="pp-meter">
+                <div className="pp-meter-head">
+                  <span><span className="pp-live" /> Разбор позиций и цен</span>
+                  <b>{parseProg.done} <span>из {parseProg.total}</span></b>
+                </div>
+                <div className="pp-meter-bar"><i style={{ width: `${Math.round((parseProg.done / Math.max(1, parseProg.total)) * 100)}%` }} /></div>
+              </div>
+            )}
+
             {/* live normalization tallies — real running counts */}
-            {tally && stage >= 2 && (
+            {stage >= 3 && tally && (
               <div className="pp-tally">
                 <div className="pp-tally-head">
-                  Нормализовано <b>{tally.done}</b> из {tally.total}
+                  <span className="pp-live" /> Нормализовано <b>{tally.done}</b> из {tally.total}
                 </div>
+                <div className="pp-meter-bar"><i style={{ width: `${Math.round((tally.done / Math.max(1, tally.total)) * 100)}%` }} /></div>
                 <div className="pp-tally-cells">
                   <div className="pp-tally-cell auto"><b>{tally.auto}</b><span>авто-сопоставлено</span></div>
                   <div className="pp-tally-cell review"><b>{tally.review}</b><span>на проверку</span></div>

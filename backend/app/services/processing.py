@@ -20,8 +20,9 @@ from app.validation.rules import TierVal, ValItem
 
 _RAW_CONTENT_LIMIT = 200_000
 
-# Emit a live tally at most every N items so the stream isn't flooded.
-_ITEMS_EVERY = 5
+# Emit live progress every N items so the counters stream smoothly without flooding.
+_PARSE_EVERY = 8   # разбор позиций — fast, coarse updates are fine
+_ITEMS_EVERY = 2   # нормализация — finer updates so the tally visibly climbs
 
 
 def process_document(
@@ -75,7 +76,9 @@ def process_document(
 
     n_items = n_auto = n_review = n_unmatched = n_flagged = 0
 
-    for raw in result.rows:
+    # ── Pass 1 · разбор позиций и цен — build items + tiers (fast, no API) ──
+    built: list[tuple] = []  # (item, raw, tier_vals)
+    for i, raw in enumerate(result.rows, start=1):
         item = PriceItem(
             document_id=doc.id,
             partner_id=doc.partner_id,
@@ -88,39 +91,30 @@ def process_document(
             effective_date=eff_date,
             is_active=True,
         )
-        # --- tiers ---
         single = len(raw.prices) == 1
         tier_vals: list[TierVal] = []
         for p in raw.prices:
             tier_type = _map_tier(p.label, single)
             amount_kzt = to_kzt(p.amount, p.currency)
-            item.tiers.append(
-                PriceTier(
-                    tier_type=tier_type,
-                    label_raw=p.label,
-                    amount_kzt=amount_kzt,
-                    amount_original=p.amount,
-                    currency_original=p.currency,
-                )
-            )
+            item.tiers.append(PriceTier(
+                tier_type=tier_type, label_raw=p.label, amount_kzt=amount_kzt,
+                amount_original=p.amount, currency_original=p.currency,
+            ))
             tier_vals.append(TierVal(tier_type=tier_type, amount_kzt=amount_kzt))
+        db.add(item)
+        built.append((item, raw, tier_vals))
+        if progress is not None and (i % _PARSE_EVERY == 0 or i == total_rows):
+            emit({"stage": "parse", "done": i, "total": total_rows})
+    db.flush()  # assign item.ids
 
-        # --- normalization (code-first, then name) ---
+    # ── Pass 2 · нормализация к справочнику — match + validate + version (streams) ──
+    for (item, raw, tier_vals) in built:
         match = matcher.match(raw.raw_name, raw.code, raw.category)
         item.match_status = match.status
         item.match_score = match.score
         if match.status == MatchStatus.auto and match.service_id:
             item.service_id = _to_uuid(match.service_id)
             n_auto += 1
-        elif match.status == MatchStatus.review:
-            n_review += 1
-        else:
-            n_unmatched += 1
-
-        db.add(item)
-        db.flush()  # assign item.id
-
-        if match.status == MatchStatus.auto and match.service_id:
             db.add(MatchDecision(
                 price_item_id=item.id,
                 candidate_service_id=_to_uuid(match.service_id),
@@ -129,6 +123,10 @@ def process_document(
                 action=MatchAction.accepted,
                 decided_by=None,  # automatic
             ))
+        elif match.status == MatchStatus.review:
+            n_review += 1
+        else:
+            n_unmatched += 1
 
         # --- validation ---
         prev_price = _prev_resident_price(db, item)
@@ -144,12 +142,11 @@ def process_document(
             item.warnings = [{"code": w.code, "level": w.level, "message": w.message} for w in report.warnings]
             n_flagged += 1
 
-        # --- versioning ---
         supersede_previous(db, item)
         n_items += 1
 
         if progress is not None and (n_items % _ITEMS_EVERY == 0 or n_items == total_rows):
-            emit({"stage": "items", "done": n_items, "total": total_rows,
+            emit({"stage": "normalize", "done": n_items, "total": total_rows,
                   "auto": n_auto, "review": n_review, "unmatched": n_unmatched})
 
     # document status

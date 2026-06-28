@@ -317,10 +317,15 @@
 .pp-scan-rows { margin-top: 10px; font-size: 13px; color: var(--ink-2); }
 .pp-scan-rows b { color: var(--accent); font-family: var(--font-display); font-variant-numeric: tabular-nums; }
 
-/* live normalization tallies (real running counts) */
-.pp-tally { border: 1px solid var(--rule); border-radius: var(--radius); padding: 14px 16px; background: var(--paper-2); }
-.pp-tally-head { font-size: 13px; color: var(--ink-2); margin-bottom: 12px; }
-.pp-tally-head b { color: var(--ink); font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+/* live meter (parse progress) + normalization tallies (real running counts) */
+.pp-meter, .pp-tally { border: 1px solid var(--rule); border-radius: var(--radius); padding: 15px 17px; background: var(--paper-2); }
+.pp-meter-head, .pp-tally-head { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.pp-meter-head { justify-content: space-between; }
+.pp-meter-head b, .pp-tally-head b { color: var(--ink); font-family: var(--font-display); font-variant-numeric: tabular-nums; font-weight: 700; }
+.pp-meter-head b span { color: var(--muted); font-weight: 400; font-size: 12px; }
+.pp-meter-bar { height: 6px; border-radius: 999px; background: var(--paper-3); overflow: hidden; margin-top: 11px; }
+.pp-meter-bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .3s var(--ease-out); }
+.pp-tally .pp-meter-bar { margin: 11px 0 14px; }
 .pp-tally-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .pp-tally-cell { border-radius: var(--radius-s); padding: 10px 12px; background: var(--paper); border: 1px solid var(--rule); }
 .pp-tally-cell b { display: block; font-family: var(--font-display); font-size: 22px; font-variant-numeric: tabular-nums; line-height: 1; }

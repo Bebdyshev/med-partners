@@ -71,7 +71,8 @@ export type ProgressEvent =
   | { stage: "ocr"; page: number; page_total: number }
   | { stage: "ocr_done"; page: number; rows: number }
   | { stage: "extract_done"; methods: Record<string, number>; rows: number }
-  | { stage: "items"; done: number; total: number; auto: number; review: number; unmatched: number }
+  | { stage: "parse"; done: number; total: number }
+  | { stage: "normalize"; done: number; total: number; auto: number; review: number; unmatched: number }
   | { stage: "validate" }
   | { stage: "done"; doc_id: string; summary: Record<string, number | string>; methods: Record<string, number>; preview: DocumentItem[] }
   | { stage: "error"; message: string };
