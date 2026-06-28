@@ -183,6 +183,96 @@ def process_document(
     return summary
 
 
+def replay_existing(
+    db, doc: PriceDocument,
+    progress: Callable[[dict], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> dict:
+    """Replay the full live animation from a document's ALREADY-STORED results.
+
+    No OpenAI calls, no DB writes — used when the file is already in the base (e.g.
+    out of API credits): we re-emit the read/extract/ocr/parse/normalize/done events
+    paced over a few seconds, derived from the saved items. Page images for the
+    scanner still render locally (PyMuPDF), so the demo looks identical."""
+    import re
+    import time
+    from sqlalchemy import select
+
+    def emit(ev: dict) -> None:
+        if progress is not None:
+            try:
+                progress(ev)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def ck() -> None:
+        if should_cancel is not None and should_cancel():
+            from app.services.jobs import CancelledError
+            raise CancelledError()
+
+    fmt = doc.file_format.value if hasattr(doc.file_format, "value") else str(doc.file_format)
+    emit({"stage": "read", "filename": doc.source_filename, "format": fmt})
+    time.sleep(0.35)
+
+    rows = db.execute(
+        select(PriceItem, Service)
+        .outerjoin(Service, Service.id == PriceItem.service_id)
+        .where(PriceItem.document_id == doc.id)
+        .order_by(PriceItem.id)
+    ).all()
+    total = len(rows)
+    methods = doc.method_summary or {}
+
+    # OCR replay — per-page, counts derived from each item's source_ref (page=N)
+    per_page: dict[int, int] = {}
+    for item, _ in rows:
+        m = re.search(r"page=(\d+)", item.source_ref or "")
+        if m:
+            per_page[int(m.group(1))] = per_page.get(int(m.group(1)), 0) + 1
+    page_total = max(per_page) if per_page else 0
+    emit({"stage": "extract", "page_total": page_total})
+    time.sleep(0.2)
+    for p in sorted(per_page):
+        ck()
+        emit({"stage": "ocr", "page": p, "page_total": page_total})
+        time.sleep(0.45)
+        emit({"stage": "ocr_done", "page": p, "rows": per_page[p]})
+
+    emit({"stage": "extract_done", "methods": methods, "rows": total})
+    time.sleep(0.15)
+
+    # parse counter
+    for i in range(_PARSE_EVERY, total + 1, _PARSE_EVERY):
+        ck()
+        emit({"stage": "parse", "done": i, "total": total})
+        time.sleep(0.03)
+    emit({"stage": "parse", "done": total, "total": total})
+
+    # normalize counter — running tallies from the stored match_status
+    auto = review = unmatched = 0
+    for i, (item, _svc) in enumerate(rows, start=1):
+        st = item.match_status.value if hasattr(item.match_status, "value") else str(item.match_status)
+        if st == MatchStatus.auto.value:
+            auto += 1
+        elif st == MatchStatus.review.value:
+            review += 1
+        else:
+            unmatched += 1
+        if i % _ITEMS_EVERY == 0 or i == total:
+            ck()
+            emit({"stage": "normalize", "done": i, "total": total,
+                  "auto": auto, "review": review, "unmatched": unmatched})
+            time.sleep(0.02)
+
+    emit({"stage": "validate"})
+    time.sleep(0.15)
+    status = doc.status.value if hasattr(doc.status, "value") else str(doc.status)
+    summary = {"status": status, "items": total, "auto": auto, "review": review, "unmatched": unmatched}
+    emit({"stage": "done", "doc_id": str(doc.id), "summary": summary,
+          "methods": methods, "preview": _preview_items(db, doc.id, 8)})
+    return summary
+
+
 def _preview_items(db, doc_id, limit: int = 8) -> list[dict]:
     """First N items of a document with their match status + canonical + price,
     for the demo result card."""

@@ -64,6 +64,7 @@ export default function ParseProgress({
   const [canceling, setCanceling] = useState(false);
   const docIdRef = useRef<string>(reconnectId || "");
   const settledRef = useRef(false);
+  const replayRef = useRef(false); // true when replaying an already-processed doc (don't delete on cancel)
   const recoMapRef = useRef<Record<number, number>>({}); // page → rows (idempotent across replays)
 
   // smooth percentage readout — eases toward target so the number climbs like an instrument
@@ -143,36 +144,20 @@ export default function ParseProgress({
       }
     }
 
-    async function showExisting(docId: string) {
-      setStage(5); setPctTarget(100); setScan(null);
-      try {
-        const r = await api.documentResult(docId);
-        if (!alive) return;
-        const m = Object.entries(r.methods) as [string, number][];
-        const items = m.reduce((a, [, n]) => a + n, 0) || r.summary.items;
-        settle({
-          kind: "done", items, methods: m, status: String(r.summary.status), docId,
-          preview: r.preview || [], auto: r.summary.auto, review: r.summary.review, unmatched: r.summary.unmatched,
-          fromCache: true,
-        });
-        onComplete();
-      } catch (e) {
-        settle({ kind: "error", msg: (e as Error).message });
-      }
-    }
-
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-    async function stream(id: string) {
+    async function stream(id: string, replay: boolean) {
+      replayRef.current = replay;
       docIdRef.current = id;
       persistActive({ id, name: reconnectName || file?.name || "документ" });
+      const run = replay ? api.replayStream : api.streamProcess;
       // Reconnect loop: the job runs server-side independent of this connection, so a
       // dropped stream (proxy blip, backend reload, reload) is NOT fatal — re-attach and
       // replay. Only a terminal event (done/canceled/error) settles + clears localStorage.
       let drops = 0;
       while (alive && !settledRef.current) {
         try {
-          await api.streamProcess(id, handle, ctrl.signal);
+          await run(id, handle, ctrl.signal);
           if (settledRef.current || !alive) return;       // got a terminal event
           drops++;                                          // stream closed w/o terminal
         } catch {
@@ -204,27 +189,28 @@ export default function ParseProgress({
 
     (async () => {
       // Reconnect mode: a job is already running for this doc — just tail it.
-      if (reconnectId) { await stream(reconnectId); return; }
+      if (reconnectId) { await stream(reconnectId, false); return; }
 
       let up;
       try {
-        // process=false: we drive processing via the stream. dedupe OFF so every upload
-        // re-runs and plays the full live pipeline (даже если файл уже был в базе).
-        // The existing-data path is a safety net. The abort signal means a discarded
-        // StrictMode double-mount doesn't leave an orphan document.
-        up = await api.upload(file!, false, false, false, ctrl.signal);
+        // dedupe ON: if the file is already in the base, we get its id back and play an
+        // ANIMATED REPLAY from stored data (no OpenAI — works without API credits). A
+        // genuinely new file is processed for real.
+        up = await api.upload(file!, false, false, true, ctrl.signal);
       } catch (e) {
         if (!alive) return; // aborted (StrictMode cleanup) — ignore
         settle({ kind: "error", msg: (e as Error).message }); return;
       }
       if (!alive) return;
-      if (!up.created.length) {
-        if (up.existing && up.existing.length) { await showExisting(up.existing[0]); }
-        else settle({ kind: "error", msg: "файл не создан" });
-        return;
+      if (up.created.length) {
+        setStage(0); setPctTarget(8);
+        await stream(up.created[0], false);       // new file — real processing
+      } else if (up.existing && up.existing.length) {
+        setStage(0); setPctTarget(8);
+        await stream(up.existing[0], true);       // already in base — animated replay
+      } else {
+        settle({ kind: "error", msg: "файл не создан" });
       }
-      setStage(0); setPctTarget(8);
-      await stream(up.created[0]);
     })();
 
     return () => { alive = false; ctrl.abort(); };
@@ -235,7 +221,12 @@ export default function ParseProgress({
     const id = docIdRef.current;
     if (!id) { onClose(); return; }
     setCanceling(true);
-    try { await api.deleteDocument(id); } catch { /* ignore */ }
+    try {
+      // replay → only stop the animation (keep the real stored doc);
+      // real run → delete the half-processed document
+      if (replayRef.current) await api.cancelDocument(id);
+      else await api.deleteDocument(id);
+    } catch { /* ignore */ }
     clearActive();
     onComplete();
     onClose();

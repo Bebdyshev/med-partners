@@ -86,41 +86,38 @@ export const api = {
 
   pageImageUrl: (docId: string, pageno: number) => `${BASE}/documents/${docId}/page/${pageno}`,
 
-  // Stream live processing events via fetch + ReadableStream (proxies cleanly through
-  // the Next rewrite; one-shot, so no EventSource auto-reconnect).
-  streamProcess: async (
-    docId: string,
-    onEvent: (ev: ProgressEvent) => void,
-    signal?: AbortSignal,
-  ): Promise<void> => {
-    const res = await fetch(`${BASE}/documents/${docId}/process-stream`, {
-      cache: "no-store",
-      headers: { Accept: "text/event-stream" },
-      signal,
-    });
-    if (!res.ok || !res.body) throw new Error(`stream failed (${res.status})`);
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let nl: number;
-      // events are separated by a blank line
-      while ((nl = buf.indexOf("\n\n")) !== -1) {
-        const chunk = buf.slice(0, nl);
-        buf = buf.slice(nl + 2);
-        for (const line of chunk.split("\n")) {
-          if (!line.startsWith("data:")) continue;
-          const payload = line.slice(5).trim();
-          if (!payload) continue;
-          try { onEvent(JSON.parse(payload) as ProgressEvent); } catch { /* ignore partial */ }
-        }
+  // Stream live events via fetch + ReadableStream (proxies cleanly through the Next
+  // rewrite; one-shot, so no EventSource auto-reconnect).
+  streamProcess: (docId: string, onEvent: (ev: ProgressEvent) => void, signal?: AbortSignal) =>
+    streamSSE(`/documents/${docId}/process-stream`, onEvent, signal),
+  // Animated replay of an already-processed doc (no OpenAI — reuses stored data)
+  replayStream: (docId: string, onEvent: (ev: ProgressEvent) => void, signal?: AbortSignal) =>
+    streamSSE(`/documents/${docId}/replay-stream`, onEvent, signal),
+};
+
+async function streamSSE(path: string, onEvent: (ev: ProgressEvent) => void, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, { cache: "no-store", headers: { Accept: "text/event-stream" }, signal });
+  if (!res.ok || !res.body) throw new Error(`stream failed (${res.status})`);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n\n")) !== -1) {
+      const chunk = buf.slice(0, nl);
+      buf = buf.slice(nl + 2);
+      for (const line of chunk.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+        try { onEvent(JSON.parse(payload) as ProgressEvent); } catch { /* ignore partial */ }
       }
     }
-  },
-};
+  }
+}
 
 export function fmtKzt(v: string | number): string {
   const n = typeof v === "string" ? parseFloat(v) : v;

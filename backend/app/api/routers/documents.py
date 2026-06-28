@@ -214,6 +214,42 @@ def process_stream(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     return StreamingResponse(gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
+@router.get("/documents/{doc_id}/replay-stream")
+def replay_stream(doc_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Animated replay of an already-processed document's stored results (no OpenAI).
+
+    Used when the file is already in the base — plays the full live pipeline view from
+    saved data so the demo works even without API credits."""
+    from app.services.jobs import get_job, start_replay
+
+    doc = db.get(PriceDocument, doc_id)
+    if doc is None:
+        raise HTTPException(404, "document not found")
+
+    job = get_job(str(doc_id))
+    if job is None or job.done:
+        job = start_replay(str(doc_id))  # fresh animation each run
+
+    def gen():
+        yield ": keep-alive\n\n"
+        idx = 0
+        while True:
+            with job.cond:
+                while idx >= len(job.events) and not job.done:
+                    job.cond.wait(timeout=10)
+                evs = job.events[idx:]
+                idx = len(job.events)
+                done = job.done
+            for ev in evs:
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+            if done and idx >= len(job.events):
+                break
+            if not evs:
+                yield ": ping\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
 @router.post("/documents/{doc_id}/cancel")
 def cancel_document(doc_id: uuid.UUID):
     """Signal a running job to stop. The worker rolls back; the document stays queued."""
