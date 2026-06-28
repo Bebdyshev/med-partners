@@ -12,9 +12,23 @@ def create_app() -> FastAPI:
         title="MedArchive API",
         version="0.1.0",
         description=(
-            "Automatic processing of clinic price lists: ingestion, extraction, "
-            "normalization to a service dictionary, versioned storage and search."
+            "Автоматическая обработка прайс-листов клиник: загрузка и извлечение "
+            "(PDF/скан/DOCX/XLSX), нормализация к справочнику услуг (code-first → "
+            "эмбеддинг → LLM-судья → fuzzy), валидация качества, версионирование "
+            "цен (archive-on-change) и гибридный поиск.\n\n"
+            "**Группы:** ingestion — загрузка и обработка документов; services — справочник "
+            "услуг; partners — клиники; search — поиск; review — очередь верификации; "
+            "dashboard — аналитика."
         ),
+        openapi_tags=[
+            {"name": "ingestion", "description": "Загрузка, обработка, статус и стрим документов."},
+            {"name": "services", "description": "Справочник услуг, описания, кто оказывает услугу."},
+            {"name": "partners", "description": "Партнёры-клиники и их прайсы."},
+            {"name": "search", "description": "Гибридный поиск по услугам и партнёрам."},
+            {"name": "review", "description": "Очередь верификации и ручное сопоставление."},
+            {"name": "dashboard", "description": "Сводные метрики и аналитика."},
+            {"name": "meta", "description": "Служебные эндпоинты."},
+        ],
     )
 
     # Routers are imported lazily to keep optional/heavy deps out of import path

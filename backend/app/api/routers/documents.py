@@ -43,7 +43,8 @@ def _resolve_stored(stored_path: str) -> Path | None:
     return None
 
 
-@router.get("/documents", response_model=list[DocumentOut])
+@router.get("/documents", response_model=list[DocumentOut], summary="Список документов",
+            description="Загруженные прайс-документы с фильтром по статусу обработки.")
 def list_documents(
     status: str | None = Query(None),
     limit: int = Query(200, le=2000),
@@ -58,7 +59,8 @@ def list_documents(
     return [_to_out(d) for d in docs]
 
 
-@router.get("/documents/{doc_id}", response_model=DocumentOut)
+@router.get("/documents/{doc_id}", response_model=DocumentOut, summary="Документ по id",
+            description="Один документ: формат, год, статус, методы извлечения, предупреждения.")
 def get_document(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     doc = db.get(PriceDocument, doc_id)
     if doc is None:
@@ -66,7 +68,7 @@ def get_document(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     return _to_out(doc)
 
 
-@router.get("/documents/{doc_id}/file")
+@router.get("/documents/{doc_id}/file", summary="Открыть/скачать оригинал")
 def get_document_file(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     """Serve the immutable original upload — opens inline (PDF) or downloads (Excel/Word)."""
     doc = db.get(PriceDocument, doc_id)
@@ -85,7 +87,7 @@ def get_document_file(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/documents/{doc_id}/result")
+@router.get("/documents/{doc_id}/result", summary="Сохранённый результат обработки")
 def document_result(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     """Stored parse result for an already-processed document — used as the fallback
     when an upload is a duplicate (show what's already in the base, no re-run)."""
@@ -115,7 +117,7 @@ def document_result(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/demo-file")
+@router.get("/demo-file", summary="Демо-файл (скан) для показа")
 def demo_file():
     """Serve a small scanned price-list for the live demo (smallest PDF in data/)."""
     data_dir = Path(__file__).resolve().parents[4] / "data"
@@ -130,7 +132,7 @@ def demo_file():
     )
 
 
-@router.get("/documents/{doc_id}/page/{pageno}")
+@router.get("/documents/{doc_id}/page/{pageno}", summary="PNG страницы PDF (для сканера)")
 def document_page(doc_id: uuid.UUID, pageno: int, db: Session = Depends(get_db)):
     """Render one PDF page to PNG (~150 DPI), cached, for the scanner visual."""
     doc = db.get(PriceDocument, doc_id)
@@ -164,7 +166,7 @@ _SSE_HEADERS = {
 }
 
 
-@router.get("/documents/{doc_id}/process-stream")
+@router.get("/documents/{doc_id}/process-stream", summary="Живой стрим обработки (SSE)")
 def process_stream(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     """Tail a background processing job (replay past events, then live).
 
@@ -214,7 +216,7 @@ def process_stream(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     return StreamingResponse(gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
-@router.get("/documents/{doc_id}/replay-stream")
+@router.get("/documents/{doc_id}/replay-stream", summary="Реплей обработки из кэша (SSE)")
 def replay_stream(doc_id: uuid.UUID, max_pages: int = Query(0), db: Session = Depends(get_db)):
     """Animated replay of an already-processed document's stored results (no OpenAI).
 
@@ -251,7 +253,7 @@ def replay_stream(doc_id: uuid.UUID, max_pages: int = Query(0), db: Session = De
     return StreamingResponse(gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
-@router.post("/documents/{doc_id}/cancel")
+@router.post("/documents/{doc_id}/cancel", summary="Отменить обработку")
 def cancel_document(doc_id: uuid.UUID):
     """Signal a running job to stop. The worker rolls back; the document stays queued."""
     from app.services.jobs import get_job
@@ -263,7 +265,7 @@ def cancel_document(doc_id: uuid.UUID):
     return {"canceled": False}
 
 
-@router.delete("/documents/{doc_id}")
+@router.delete("/documents/{doc_id}", summary="Удалить документ (каскадно)")
 def delete_document(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     """Delete a document and everything derived from it (cancels any running job first)."""
     from sqlalchemy import text
@@ -287,7 +289,7 @@ def delete_document(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     return {"deleted": True}
 
 
-@router.post("/documents/purge")
+@router.post("/documents/purge", summary="Очистить документы по статусу")
 def purge_documents(status: str = Query("queued"), db: Session = Depends(get_db)):
     """Bulk-delete all documents in a given status (default: queued) — for clearing the queue."""
     ids = db.execute(select(PriceDocument.id).where(PriceDocument.status == status)).scalars().all()
@@ -324,7 +326,7 @@ def _finish(rows: list[dict], label: str, target: int) -> dict:
     return {"kind": "table", "label": label, "target": target, "rows": rows}
 
 
-@router.get("/documents/{doc_id}/preview")
+@router.get("/documents/{doc_id}/preview", summary="Фрагмент источника вокруг строки")
 def document_preview(doc_id: uuid.UUID, ref: str = Query("", description="source_ref of the item"),
                      db: Session = Depends(get_db)):
     """A focused fragment of an Excel/Word source around the item's row — so the
@@ -380,18 +382,18 @@ def document_preview(doc_id: uuid.UUID, ref: str = Query("", description="source
     return {"kind": "unsupported"}
 
 
-@router.get("/dashboard/stats")
+@router.get("/dashboard/stats", tags=["dashboard"], summary="Дашборд: сводные метрики")
 def dashboard_stats(db: Session = Depends(get_db)):
     return compute_report()
 
 
-@router.get("/dashboard/documents")
+@router.get("/dashboard/documents", tags=["dashboard"], summary="Дашборд: состав по документам")
 def dashboard_documents():
     """Per-document composition + provenance + category mix for the dashboard ledger."""
     return compute_document_breakdown()
 
 
-@router.get("/dashboard/partners")
+@router.get("/dashboard/partners", tags=["dashboard"], summary="Дашборд: по партнёрам")
 def dashboard_partners():
     """Per-partner rollup (positions, auto-match rate, price freshness) for the directory."""
     return compute_partner_breakdown()

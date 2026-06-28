@@ -16,7 +16,8 @@ from app.schemas.dto import MatchRequest, TierOut, UnmatchedOut
 router = APIRouter()
 
 
-@router.get("/unmatched", response_model=list[UnmatchedOut])
+@router.get("/unmatched", response_model=list[UnmatchedOut], summary="Очередь верификации",
+            description="Несопоставленные и спорные позиции с ранжированными кандидатами справочника.")
 def unmatched(
     include_review: bool = Query(True),
     limit: int = Query(50, le=500),
@@ -73,7 +74,7 @@ def unmatched(
     return out
 
 
-@router.post("/review/ai-compare")
+@router.post("/review/ai-compare", summary="ИИ-сравнение позиции со справочником")
 def ai_compare(item_id: uuid.UUID = Body(..., embed=True), db: Session = Depends(get_db)):
     """Run the LLM judge on one item's dictionary candidates and explain the best fit."""
     if not llm_rerank.available():
@@ -99,7 +100,7 @@ def ai_compare(item_id: uuid.UUID = Body(..., embed=True), db: Session = Depends
     }
 
 
-@router.post("/review/bulk-accept")
+@router.post("/review/bulk-accept", summary="Массовое принятие по порогу")
 def bulk_accept(min_score: float = Query(0.80, ge=0, le=1), dry_run: bool = Query(False)):
     """Accept the top suggestion for every active review item with score >= min_score.
     Use dry_run=true first to see how many are eligible."""
@@ -108,7 +109,7 @@ def bulk_accept(min_score: float = Query(0.80, ge=0, le=1), dry_run: bool = Quer
     return bulk_accept_review(min_score, dry_run=dry_run, decided_by="operator/bulk")
 
 
-@router.post("/match")
+@router.post("/match", summary="Ручное сопоставление / создание услуги")
 def manual_match(req: MatchRequest, db: Session = Depends(get_db)):
     """Operator confirms/changes a match, or creates a new dictionary service.
     Learns a synonym so future documents auto-match."""

@@ -41,13 +41,14 @@ def _find_description(canonical_name: str) -> dict | None:
     return None
 
 
-@router.get("/service-descriptions")
+@router.get("/service-descriptions", summary="Все описания услуг (энциклопедия)")
 def list_descriptions():
     """All curated service descriptions (for search/enrichment)."""
     return _load_descriptions()
 
 
-@router.get("/services", response_model=list[ServiceOut])
+@router.get("/services", response_model=list[ServiceOut], summary="Список услуг справочника",
+            description="Услуги целевого справочника с фильтром по категории и подстроке имени.")
 def list_services(
     category: str | None = Query(None),
     q: str | None = Query(None, description="substring filter on name"),
@@ -64,7 +65,7 @@ def list_services(
     return db.execute(stmt).scalars().all()
 
 
-@router.patch("/services/{service_id}", response_model=ServiceOut)
+@router.patch("/services/{service_id}", response_model=ServiceOut, summary="Редактировать услугу справочника")
 def update_service(service_id: uuid.UUID, body: ServiceUpdate, db: Session = Depends(get_db)):
     """Operator edits a dictionary service (name / category / code / active flag)."""
     svc = db.get(Service, service_id)
@@ -87,7 +88,7 @@ def update_service(service_id: uuid.UUID, body: ServiceUpdate, db: Session = Dep
     return svc
 
 
-@router.get("/services/{service_id}/description")
+@router.get("/services/{service_id}/description", summary="Описание услуги (что/зачем/подготовка)")
 def service_description(service_id: uuid.UUID, db: Session = Depends(get_db)):
     """Curated educational description for a service (what it is, why useful, how to prepare).
     Always returns a result — uses category-level fallback when no curated entry exists."""
@@ -106,7 +107,9 @@ def service_description(service_id: uuid.UUID, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/services/{service_id}/partners", response_model=list[PartnerPriceOut])
+@router.get("/services/{service_id}/partners", response_model=list[PartnerPriceOut],
+            summary="Кто оказывает услугу + цены",
+            description="Партнёры, оказывающие услугу, с ценами (дешевле сверху).")
 def service_partners(service_id: uuid.UUID, db: Session = Depends(get_db)):
     svc = db.get(Service, service_id)
     if svc is None:

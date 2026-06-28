@@ -61,7 +61,9 @@ def _find_existing(db: Session, f: Path) -> str | None:
     return None
 
 
-@router.post("/upload")
+@router.post("/upload", summary="Загрузка прайс-листа (ZIP/файл)",
+             description="Принимает ZIP-архив или одиночный файл (PDF/скан/DOCX/XLSX/XLS); "
+                         "дедуп по хэшу, постановка в обработку. Возвращает created/existing/replay_pages.")
 async def upload(
     file: UploadFile = File(..., description="A ZIP archive or a single price-list file"),
     process: bool = Query(True, description="enqueue processing immediately"),

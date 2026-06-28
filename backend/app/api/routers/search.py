@@ -10,7 +10,8 @@ from app.services.search import search_partners, search_services
 router = APIRouter()
 
 
-@router.get("/search", response_model=SearchOut)
+@router.get("/search", response_model=SearchOut, summary="Поиск по услугам и партнёрам",
+            description="Гибридный поиск: FTS + расширение аббревиатур → семантика → триграммы (опечатки).")
 def search(q: str = Query(..., min_length=1), db: Session = Depends(get_db)):
     return SearchOut(
         services=search_services(db, q),

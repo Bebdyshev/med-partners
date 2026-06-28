@@ -15,7 +15,8 @@ router = APIRouter()
 _TIER_ORDER = {t: i for i, t in enumerate(TierType)}
 
 
-@router.get("/partners", response_model=list[PartnerOut])
+@router.get("/partners", response_model=list[PartnerOut], summary="Список партнёров (клиник)",
+            description="Партнёры-клиники с фильтром по городу и статусу активности.")
 def list_partners(
     city: str | None = Query(None),
     is_active: bool | None = Query(None),
@@ -32,7 +33,9 @@ def list_partners(
     return db.execute(stmt).scalars().all()
 
 
-@router.get("/partners/{partner_id}/services", response_model=list[ServicePriceOut])
+@router.get("/partners/{partner_id}/services", response_model=list[ServicePriceOut],
+            summary="Полный прайс партнёра",
+            description="Все услуги конкретной клиники с ценами и статусом сопоставления.")
 def partner_services(
     partner_id: uuid.UUID,
     active_only: bool = Query(True),
