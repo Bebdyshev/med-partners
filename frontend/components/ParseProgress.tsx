@@ -146,9 +146,11 @@ export default function ParseProgress({
         // process=false: we drive processing via the stream. dedupe OFF so every upload
         // re-runs and plays the full live pipeline (даже если файл уже был в базе —
         // для демо важно показать весь процесс, а не скипнуть на кэш). The existing-data
-        // path below is a safety net for when nothing new is created.
-        up = await api.upload(file, false, false, false);
+        // path below is a safety net for when nothing new is created. The abort signal
+        // means a discarded StrictMode double-mount doesn't leave an orphan document.
+        up = await api.upload(file, false, false, false, ctrl.signal);
       } catch (e) {
+        if (!alive) return; // aborted (StrictMode cleanup) — ignore
         settle({ kind: "error", msg: (e as Error).message }); return;
       }
       if (!alive) return;

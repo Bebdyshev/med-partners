@@ -193,7 +193,14 @@ def process_stream(doc_id: uuid.UUID):
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        headers={
+            # no-transform + identity stop the Next dev proxy from gzipping the stream
+            # (gzip buffers tiny SSE events until the block fills → UI looks frozen)
+            "Cache-Control": "no-cache, no-transform",
+            "Content-Encoding": "identity",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
 
 

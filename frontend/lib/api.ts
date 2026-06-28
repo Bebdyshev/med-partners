@@ -62,12 +62,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  upload: (file: File, asynchronous = false, process = true, dedupe = true) => {
+  upload: (file: File, asynchronous = false, process = true, dedupe = true, signal?: AbortSignal) => {
     const fd = new FormData();
     fd.append("file", file);
     return j<{ created: string[]; existing: string[]; skipped_duplicates: number; queued: boolean }>(
       `/upload?asynchronous=${asynchronous}&process=${process}&dedupe=${dedupe}`,
-      { method: "POST", body: fd }
+      { method: "POST", body: fd, signal }
     );
   },
 
