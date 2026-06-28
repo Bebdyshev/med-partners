@@ -216,7 +216,7 @@ def replay_existing(
 
     fmt = doc.file_format.value if hasattr(doc.file_format, "value") else str(doc.file_format)
     emit({"stage": "read", "filename": doc.source_filename, "format": fmt})
-    time.sleep(0.9)
+    time.sleep(1.6)
 
     all_rows = db.execute(
         select(PriceItem, Service)
@@ -253,26 +253,26 @@ def replay_existing(
         methods[mth] = methods.get(mth, 0) + 1
 
     emit({"stage": "extract", "page_total": page_total})
-    time.sleep(0.5)
+    time.sleep(0.8)
     for p in sorted(per_page):
         if max_pages > 0 and p > max_pages:
             break
         ck()
         emit({"stage": "ocr", "page": p, "page_total": page_total})
-        time.sleep(1.1)
+        time.sleep(2.0)
         emit({"stage": "ocr_done", "page": p, "rows": per_page[p]})
-        time.sleep(0.2)
+        time.sleep(0.4)
 
     emit({"stage": "extract_done", "methods": methods, "rows": total})
-    time.sleep(0.4)
+    time.sleep(0.8)
 
     # parse counter
     for i in range(_PARSE_EVERY, total + 1, _PARSE_EVERY):
         ck()
         emit({"stage": "parse", "done": i, "total": total})
-        time.sleep(0.09)
+        time.sleep(0.16)
     emit({"stage": "parse", "done": total, "total": total})
-    time.sleep(0.3)
+    time.sleep(0.6)
 
     # normalize counter — running tallies from the stored match_status
     auto = review = unmatched = 0
@@ -288,10 +288,10 @@ def replay_existing(
             ck()
             emit({"stage": "normalize", "done": i, "total": total,
                   "auto": auto, "review": review, "unmatched": unmatched})
-            time.sleep(0.07)
+            time.sleep(0.12)
 
     emit({"stage": "validate"})
-    time.sleep(0.5)
+    time.sleep(0.9)
     status = doc.status.value if hasattr(doc.status, "value") else str(doc.status)
     summary = {"status": status, "items": total, "auto": auto, "review": review, "unmatched": unmatched}
     preview = _preview_items(db, doc.id, 8) if max_pages == 0 else _preview_capped(rows, 8)
