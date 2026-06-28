@@ -35,6 +35,8 @@ def available() -> bool:
         import openai  # noqa: F401
     except Exception:  # noqa: BLE001
         return False
+    if settings.llm_provider == "ollama":
+        return True  # Ollama needs no API key
     return bool(settings.openai_api_key or os.environ.get("OPENAI_API_KEY"))
 
 
@@ -42,6 +44,8 @@ def available() -> bool:
 def _client():
     from openai import OpenAI
 
+    if settings.llm_provider == "ollama":
+        return OpenAI(base_url=settings.ollama_base_url, api_key="ollama")
     return OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else OpenAI()
 
 
@@ -53,7 +57,7 @@ def _judge_one(raw_name: str, category: str | None, candidates: list[str]) -> tu
         f"Кандидаты из справочника:\n{cand_lines}"
     )
     resp = _client().chat.completions.create(
-        model=settings.llm_model,
+        model=settings.active_llm_model,
         temperature=0,
         response_format={"type": "json_object"},
         messages=[{"role": "system", "content": _SYS}, {"role": "user", "content": user}],
@@ -83,7 +87,7 @@ def compare_one(raw_name: str, category: str | None, candidates: list[str]) -> d
         f"Кандидаты из справочника:\n{cand_lines}"
     )
     resp = _client().chat.completions.create(
-        model=settings.llm_model,
+        model=settings.active_llm_model,
         temperature=0,
         response_format={"type": "json_object"},
         messages=[{"role": "system", "content": _SYS_COMPARE}, {"role": "user", "content": user}],

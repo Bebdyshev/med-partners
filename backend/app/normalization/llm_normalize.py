@@ -38,6 +38,8 @@ def available() -> bool:
         import openai  # noqa: F401
     except Exception:  # noqa: BLE001
         return False
+    if settings.llm_provider == "ollama":
+        return True  # Ollama needs no API key
     return bool(settings.openai_api_key or os.environ.get("OPENAI_API_KEY"))
 
 
@@ -45,6 +47,8 @@ def available() -> bool:
 def _client():
     from openai import OpenAI
 
+    if settings.llm_provider == "ollama":
+        return OpenAI(base_url=settings.ollama_base_url, api_key="ollama")
     return OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else OpenAI()
 
 
@@ -55,7 +59,7 @@ def _clean_batch(batch: list[str]) -> dict[str, str]:
     for _ in range(5):
         try:
             resp = _client().chat.completions.create(
-                model=settings.llm_model,
+                model=settings.active_llm_model,
                 temperature=0,
                 response_format={"type": "json_object"},
                 messages=[{"role": "system", "content": _SYS}, {"role": "user", "content": user}],

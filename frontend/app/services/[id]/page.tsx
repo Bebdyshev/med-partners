@@ -10,6 +10,12 @@ import { Glyph } from "@/components/Icon";
 import { Reveal, Counter } from "@/components/Motion";
 import "@/app/discovery.css";
 
+function fmtDuration(min: number): string {
+  if (min < 60) return `${min} мин`;
+  if (min < 1440) return `${Math.round(min / 60)} ч`;
+  return `${Math.round(min / 1440)} сут`;
+}
+
 export const dynamic = "force-dynamic";
 
 function residentPrice(tiers: Tier[]): Tier | undefined {
@@ -34,6 +40,7 @@ export default function ServiceDetail({ params }: { params: { id: string } }) {
   const { id } = params;
   const name = useSearchParams().get("name") || "Услуга справочника";
   const { data, error, loading } = useFetch(() => api.servicePartners(id), [id]);
+  const { data: desc } = useFetch(() => api.serviceDescription(id), [id]);
 
   const rows = (data ?? []).slice().sort((a, b) => (priceNum(a) || Infinity) - (priceNum(b) || Infinity));
   const nums = finite(rows.map(priceNum));
@@ -103,6 +110,59 @@ export default function ServiceDetail({ params }: { params: { id: string } }) {
           <h1>{name}</h1>
         </div>
       </div>
+
+      {/* service encyclopedia description */}
+      {desc && (
+        <Reveal dir="up">
+          <div className="svc-desc">
+            {desc.found ? (
+              <>
+                {desc.short && <p className="svc-desc-short">{desc.short}</p>}
+                <div className="svc-desc-grid">
+                  {desc.what && (
+                    <div className="svc-desc-block">
+                      <div className="svc-desc-label">Что исследуется</div>
+                      <div className="svc-desc-text">{desc.what}</div>
+                    </div>
+                  )}
+                  {desc.why && (
+                    <div className="svc-desc-block">
+                      <div className="svc-desc-label">Когда назначается</div>
+                      <div className="svc-desc-text">{desc.why}</div>
+                    </div>
+                  )}
+                  {desc.prep && (
+                    <div className="svc-desc-block">
+                      <div className="svc-desc-label">Как подготовиться</div>
+                      <div className="svc-desc-text">{desc.prep}</div>
+                    </div>
+                  )}
+                </div>
+                <div className="svc-desc-meta">
+                  {desc.duration_min != null && <span><Glyph.clock size={12} /> {fmtDuration(desc.duration_min)}</span>}
+                  {desc.category && <span>{desc.category}</span>}
+                  {desc.icd_code && <span className="mono">МКБ {desc.icd_code}</span>}
+                </div>
+              </>
+            ) : (
+              <div className="svc-desc-grid">
+                {desc.category && (
+                  <div className="svc-desc-block">
+                    <div className="svc-desc-label">Категория</div>
+                    <div className="svc-desc-text">{desc.category}</div>
+                  </div>
+                )}
+                {desc.icd_code && (
+                  <div className="svc-desc-block">
+                    <div className="svc-desc-label">Код МКБ</div>
+                    <div className="svc-desc-text mono">{desc.icd_code}</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </Reveal>
+      )}
 
       {loading && <Loading />}
       {error && <ErrorNote error={error} />}
