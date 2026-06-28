@@ -143,9 +143,11 @@ export default function ParseProgress({
     (async () => {
       let up;
       try {
-        // process=false: we drive processing via the stream. dedupe stays on — a file
-        // already in the base falls back to its stored result instead of re-running.
-        up = await api.upload(file, false, false, true);
+        // process=false: we drive processing via the stream. dedupe OFF so every upload
+        // re-runs and plays the full live pipeline (даже если файл уже был в базе —
+        // для демо важно показать весь процесс, а не скипнуть на кэш). The existing-data
+        // path below is a safety net for when nothing new is created.
+        up = await api.upload(file, false, false, false);
       } catch (e) {
         settle({ kind: "error", msg: (e as Error).message }); return;
       }
