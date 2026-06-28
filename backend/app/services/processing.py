@@ -187,13 +187,17 @@ def replay_existing(
     db, doc: PriceDocument,
     progress: Callable[[dict], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    max_pages: int = 0,
 ) -> dict:
-    """Replay the full live animation from a document's ALREADY-STORED results.
+    """Replay the live animation from a document's ALREADY-STORED results.
 
     No OpenAI calls, no DB writes — used when the file is already in the base (e.g.
     out of API credits): we re-emit the read/extract/ocr/parse/normalize/done events
-    paced over a few seconds, derived from the saved items. Page images for the
-    scanner still render locally (PyMuPDF), so the demo looks identical."""
+    paced over a while, derived from the saved items. Page images for the scanner
+    still render locally (PyMuPDF).
+
+    `max_pages` caps the replay to the first N pages (when the user uploaded a trimmed
+    copy): only items from pages 1..N are shown, and the scanner shows those pages."""
     import re
     import time
     from sqlalchemy import select
@@ -212,41 +216,63 @@ def replay_existing(
 
     fmt = doc.file_format.value if hasattr(doc.file_format, "value") else str(doc.file_format)
     emit({"stage": "read", "filename": doc.source_filename, "format": fmt})
-    time.sleep(0.35)
+    time.sleep(0.9)
 
-    rows = db.execute(
+    all_rows = db.execute(
         select(PriceItem, Service)
         .outerjoin(Service, Service.id == PriceItem.service_id)
         .where(PriceItem.document_id == doc.id)
         .order_by(PriceItem.id)
     ).all()
-    total = len(rows)
-    methods = doc.method_summary or {}
 
-    # OCR replay — per-page, counts derived from each item's source_ref (page=N)
+    def page_of(item) -> int | None:
+        m = re.search(r"page=(\d+)", item.source_ref or "")
+        return int(m.group(1)) if m else None
+
+    # When the upload was trimmed to N pages, keep only items from those pages so the
+    # animation matches what the user actually uploaded.
+    if max_pages > 0:
+        rows = [(it, sv) for (it, sv) in all_rows if (page_of(it) is None or page_of(it) <= max_pages)]
+    else:
+        rows = list(all_rows)
+    total = len(rows)
+
+    # OCR replay — per-page counts from source_ref (page=N), capped to max_pages
     per_page: dict[int, int] = {}
     for item, _ in rows:
-        m = re.search(r"page=(\d+)", item.source_ref or "")
-        if m:
-            per_page[int(m.group(1))] = per_page.get(int(m.group(1)), 0) + 1
+        p = page_of(item)
+        if p is not None:
+            per_page[p] = per_page.get(p, 0) + 1
     page_total = max(per_page) if per_page else 0
+    if max_pages > 0 and page_total:
+        page_total = min(page_total, max_pages)
+
+    methods: dict[str, int] = {}
+    for item, _ in rows:
+        mth = item.extraction_method
+        methods[mth] = methods.get(mth, 0) + 1
+
     emit({"stage": "extract", "page_total": page_total})
-    time.sleep(0.2)
+    time.sleep(0.5)
     for p in sorted(per_page):
+        if max_pages > 0 and p > max_pages:
+            break
         ck()
         emit({"stage": "ocr", "page": p, "page_total": page_total})
-        time.sleep(0.45)
+        time.sleep(1.1)
         emit({"stage": "ocr_done", "page": p, "rows": per_page[p]})
+        time.sleep(0.2)
 
     emit({"stage": "extract_done", "methods": methods, "rows": total})
-    time.sleep(0.15)
+    time.sleep(0.4)
 
     # parse counter
     for i in range(_PARSE_EVERY, total + 1, _PARSE_EVERY):
         ck()
         emit({"stage": "parse", "done": i, "total": total})
-        time.sleep(0.03)
+        time.sleep(0.09)
     emit({"stage": "parse", "done": total, "total": total})
+    time.sleep(0.3)
 
     # normalize counter — running tallies from the stored match_status
     auto = review = unmatched = 0
@@ -262,15 +288,38 @@ def replay_existing(
             ck()
             emit({"stage": "normalize", "done": i, "total": total,
                   "auto": auto, "review": review, "unmatched": unmatched})
-            time.sleep(0.02)
+            time.sleep(0.07)
 
     emit({"stage": "validate"})
-    time.sleep(0.15)
+    time.sleep(0.5)
     status = doc.status.value if hasattr(doc.status, "value") else str(doc.status)
     summary = {"status": status, "items": total, "auto": auto, "review": review, "unmatched": unmatched}
+    preview = _preview_items(db, doc.id, 8) if max_pages == 0 else _preview_capped(rows, 8)
     emit({"stage": "done", "doc_id": str(doc.id), "summary": summary,
-          "methods": methods, "preview": _preview_items(db, doc.id, 8)})
+          "methods": methods, "preview": preview})
     return summary
+
+
+def _preview_capped(rows, limit: int = 8) -> list[dict]:
+    """Preview rows from an in-memory (item, service) list — for page-capped replay."""
+    out: list[dict] = []
+    for item, svc in rows[:limit]:
+        amount = None
+        for t in item.tiers:
+            if t.tier_type == TierType.resident_kzt:
+                amount = str(t.amount_kzt)
+                break
+        if amount is None and item.tiers:
+            amount = str(item.tiers[0].amount_kzt)
+        status = item.match_status.value if hasattr(item.match_status, "value") else str(item.match_status)
+        out.append({
+            "raw_name": item.raw_name,
+            "match_status": status,
+            "match_score": float(item.match_score) if item.match_score is not None else None,
+            "canonical_name": svc.canonical_name if svc else None,
+            "amount_kzt": amount,
+        })
+    return out
 
 
 def _preview_items(db, doc_id, limit: int = 8) -> list[dict]:

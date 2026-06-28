@@ -15,6 +15,23 @@ from app.services.ingestion import _sha256, parse_filename, register_file
 router = APIRouter()
 
 
+def _pdf_page_count(p: Path) -> int:
+    """Page count of an uploaded PDF (0 if not a PDF / unreadable) — used to cap a
+    trimmed file's replay to the pages the user actually uploaded."""
+    if p.suffix.lower() != ".pdf":
+        return 0
+    try:
+        import fitz
+
+        d = fitz.open(str(p))
+        try:
+            return d.page_count
+        finally:
+            d.close()
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def _find_existing(db: Session, f: Path) -> str | None:
     """Find an already-processed document to replay for this upload — by exact hash,
     then (demo fallback, e.g. out of API credits or a trimmed file) by the same clinic
@@ -63,6 +80,7 @@ async def upload(
 
     created: list[str] = []
     existing: list[str] = []
+    replay_pages: dict[str, int] = {}  # doc_id -> uploaded page count (cap for trimmed files)
     skipped = 0
     for f in _iter_files(tmp):
         # Prefer replaying an already-processed document (by hash, else same clinic) —
@@ -70,6 +88,9 @@ async def upload(
         ex = _find_existing(db, f) if dedupe else None
         if ex is not None:
             existing.append(ex)
+            n = _pdf_page_count(f)
+            if n:
+                replay_pages[ex] = n
             skipped += 1
             continue
         doc = register_file(db, f, allow_duplicate=not dedupe)
@@ -93,4 +114,5 @@ async def upload(
                 process_document(db, doc)
             db.commit()
 
-    return {"created": created, "existing": existing, "skipped_duplicates": skipped, "queued": process}
+    return {"created": created, "existing": existing, "replay_pages": replay_pages,
+            "skipped_duplicates": skipped, "queued": process}

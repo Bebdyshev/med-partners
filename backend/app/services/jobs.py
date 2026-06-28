@@ -62,18 +62,19 @@ def start_processing(doc_id: str) -> Job:
     return job
 
 
-def start_replay(doc_id: str) -> Job:
+def start_replay(doc_id: str, max_pages: int = 0) -> Job:
     """Always start a FRESH animated replay of a document's stored results (no OpenAI,
-    no DB writes). Drops any cached job so the animation plays again on every run."""
+    no DB writes). Drops any cached job so the animation plays again on every run.
+    `max_pages` caps the replay to the first N pages (trimmed upload)."""
     with _LOCK:
         _JOBS.pop(doc_id, None)
         job = Job(doc_id)
         _JOBS[doc_id] = job
-    threading.Thread(target=_run, args=(doc_id, job, True), daemon=True).start()
+    threading.Thread(target=_run, args=(doc_id, job, True, max_pages), daemon=True).start()
     return job
 
 
-def _run(doc_id: str, job: Job, replay: bool = False) -> None:
+def _run(doc_id: str, job: Job, replay: bool = False, max_pages: int = 0) -> None:
     from app.db.session import session_scope
     from app.models import PriceDocument
     from app.services.processing import process_document, replay_existing
@@ -84,8 +85,10 @@ def _run(doc_id: str, job: Job, replay: bool = False) -> None:
             if doc is None:
                 job.emit({"stage": "error", "message": "document not found"})
                 return
-            runner = replay_existing if replay else process_document
-            runner(db, doc, progress=job.emit, should_cancel=job.cancel.is_set)
+            if replay:
+                replay_existing(db, doc, progress=job.emit, should_cancel=job.cancel.is_set, max_pages=max_pages)
+            else:
+                process_document(db, doc, progress=job.emit, should_cancel=job.cancel.is_set)
     except CancelledError:
         job.emit({"stage": "canceled"})
     except Exception as exc:  # noqa: BLE001 — surface to the client

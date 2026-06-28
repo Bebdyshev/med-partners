@@ -215,11 +215,12 @@ def process_stream(doc_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/documents/{doc_id}/replay-stream")
-def replay_stream(doc_id: uuid.UUID, db: Session = Depends(get_db)):
+def replay_stream(doc_id: uuid.UUID, max_pages: int = Query(0), db: Session = Depends(get_db)):
     """Animated replay of an already-processed document's stored results (no OpenAI).
 
     Used when the file is already in the base — plays the full live pipeline view from
-    saved data so the demo works even without API credits."""
+    saved data so the demo works even without API credits. `max_pages` caps the replay
+    to the first N pages (when the uploaded file was trimmed)."""
     from app.services.jobs import get_job, start_replay
 
     doc = db.get(PriceDocument, doc_id)
@@ -228,7 +229,7 @@ def replay_stream(doc_id: uuid.UUID, db: Session = Depends(get_db)):
 
     job = get_job(str(doc_id))
     if job is None or job.done:
-        job = start_replay(str(doc_id))  # fresh animation each run
+        job = start_replay(str(doc_id), max_pages)  # fresh animation each run
 
     def gen():
         yield ": keep-alive\n\n"

@@ -65,7 +65,7 @@ export const api = {
   upload: (file: File, asynchronous = false, process = true, dedupe = true, signal?: AbortSignal) => {
     const fd = new FormData();
     fd.append("file", file);
-    return j<{ created: string[]; existing: string[]; skipped_duplicates: number; queued: boolean }>(
+    return j<{ created: string[]; existing: string[]; replay_pages: Record<string, number>; skipped_duplicates: number; queued: boolean }>(
       `/upload?asynchronous=${asynchronous}&process=${process}&dedupe=${dedupe}`,
       { method: "POST", body: fd, signal }
     );
@@ -90,9 +90,10 @@ export const api = {
   // rewrite; one-shot, so no EventSource auto-reconnect).
   streamProcess: (docId: string, onEvent: (ev: ProgressEvent) => void, signal?: AbortSignal) =>
     streamSSE(`/documents/${docId}/process-stream`, onEvent, signal),
-  // Animated replay of an already-processed doc (no OpenAI — reuses stored data)
-  replayStream: (docId: string, onEvent: (ev: ProgressEvent) => void, signal?: AbortSignal) =>
-    streamSSE(`/documents/${docId}/replay-stream`, onEvent, signal),
+  // Animated replay of an already-processed doc (no OpenAI — reuses stored data).
+  // maxPages caps to the first N pages when the uploaded file was trimmed.
+  replayStream: (docId: string, onEvent: (ev: ProgressEvent) => void, signal?: AbortSignal, maxPages = 0) =>
+    streamSSE(`/documents/${docId}/replay-stream${maxPages ? `?max_pages=${maxPages}` : ""}`, onEvent, signal),
 };
 
 async function streamSSE(path: string, onEvent: (ev: ProgressEvent) => void, signal?: AbortSignal): Promise<void> {

@@ -146,11 +146,13 @@ export default function ParseProgress({
 
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-    async function stream(id: string, replay: boolean) {
+    async function stream(id: string, replay: boolean, maxPages = 0) {
       replayRef.current = replay;
       docIdRef.current = id;
       persistActive({ id, name: reconnectName || file?.name || "документ" });
-      const run = replay ? api.replayStream : api.streamProcess;
+      const run = replay
+        ? (i: string, h: (ev: ProgressEvent) => void, s?: AbortSignal) => api.replayStream(i, h, s, maxPages)
+        : api.streamProcess;
       // Reconnect loop: the job runs server-side independent of this connection, so a
       // dropped stream (proxy blip, backend reload, reload) is NOT fatal — re-attach and
       // replay. Only a terminal event (done/canceled/error) settles + clears localStorage.
@@ -207,7 +209,8 @@ export default function ParseProgress({
         await stream(up.created[0], false);       // new file — real processing
       } else if (up.existing && up.existing.length) {
         setStage(0); setPctTarget(8);
-        await stream(up.existing[0], true);       // already in base — animated replay
+        const cap = up.replay_pages?.[up.existing[0]] || 0;  // trimmed upload → show only those pages
+        await stream(up.existing[0], true, cap);  // already in base — animated replay
       } else {
         settle({ kind: "error", msg: "файл не создан" });
       }
