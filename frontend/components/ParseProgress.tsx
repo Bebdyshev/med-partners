@@ -64,6 +64,7 @@ export default function ParseProgress({
   const [canceling, setCanceling] = useState(false);
   const docIdRef = useRef<string>(reconnectId || "");
   const settledRef = useRef(false);
+  const recoMapRef = useRef<Record<number, number>>({}); // page → rows (idempotent across replays)
 
   // smooth percentage readout — eases toward target so the number climbs like an instrument
   useEffect(() => {
@@ -104,7 +105,9 @@ export default function ParseProgress({
           setPctTarget(14 + (ev.page / Math.max(1, ev.page_total)) * 34);
           break;
         case "ocr_done":
-          setRecognized((r) => r + ev.rows); break;
+          recoMapRef.current[ev.page] = ev.rows;
+          setRecognized(Object.values(recoMapRef.current).reduce((a, b) => a + b, 0));
+          break;
         case "extract_done":
           setStage(2); setPctTarget(52); setScan(null);
           setParseProg({ done: 0, total: ev.rows });
@@ -158,15 +161,44 @@ export default function ParseProgress({
       }
     }
 
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
     async function stream(id: string) {
       docIdRef.current = id;
       persistActive({ id, name: reconnectName || file?.name || "документ" });
-      setStage((s) => (s === 0 ? 0 : s));
-      try {
-        // streamProcess re-attaches to the running job and replays progress on reconnect
-        await api.streamProcess(id, handle, ctrl.signal);
-      } catch (e) {
-        if (!settledRef.current && alive) settle({ kind: "error", msg: (e as Error).message });
+      // Reconnect loop: the job runs server-side independent of this connection, so a
+      // dropped stream (proxy blip, backend reload, reload) is NOT fatal — re-attach and
+      // replay. Only a terminal event (done/canceled/error) settles + clears localStorage.
+      let drops = 0;
+      while (alive && !settledRef.current) {
+        try {
+          await api.streamProcess(id, handle, ctrl.signal);
+          if (settledRef.current || !alive) return;       // got a terminal event
+          drops++;                                          // stream closed w/o terminal
+        } catch {
+          if (!alive || settledRef.current) return;         // aborted or already settled
+          drops++;                                           // connection dropped
+        }
+        if (drops >= 8) {
+          // give up reconnecting — fall back to whatever is stored
+          try {
+            const r = await api.documentResult(id);
+            if (!alive || settledRef.current) return;
+            if (r.summary.status === "done" || r.summary.status === "needs_review") {
+              const m = Object.entries(r.methods) as [string, number][];
+              settle({ kind: "done", items: m.reduce((a, [, n]) => a + n, 0) || r.summary.items, methods: m,
+                status: String(r.summary.status), docId: id, preview: r.preview || [],
+                auto: r.summary.auto, review: r.summary.review, unmatched: r.summary.unmatched, fromCache: true });
+              onComplete();
+            } else {
+              settle({ kind: "error", msg: "Потеряно соединение с обработкой." });
+            }
+          } catch (e) {
+            settle({ kind: "error", msg: (e as Error).message });
+          }
+          return;
+        }
+        await sleep(1000); // brief backoff before re-attaching
       }
     }
 
