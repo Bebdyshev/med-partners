@@ -5,6 +5,7 @@ set document status. Used both synchronously (CLI) and by the Celery task.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 
@@ -19,28 +20,54 @@ from app.validation.rules import TierVal, ValItem
 
 _RAW_CONTENT_LIMIT = 200_000
 
+# Emit a live tally at most every N items so the stream isn't flooded.
+_ITEMS_EVERY = 5
 
-def process_document(db, doc: PriceDocument) -> dict:
-    """Process one document in-place within the given session. Returns a summary."""
+
+def process_document(
+    db, doc: PriceDocument, progress: Callable[[dict], None] | None = None
+) -> dict:
+    """Process one document in-place within the given session. Returns a summary.
+
+    When `progress` is given it is called with small dict events at each stage
+    (read/extract/ocr/items/validate/done) — used by the streaming demo endpoint
+    to drive a live UI. It is a no-op everywhere else (CLI, Celery)."""
+
+    def emit(ev: dict) -> None:
+        if progress is not None:
+            try:
+                progress(ev)
+            except Exception:  # noqa: BLE001 — progress must never break processing
+                pass
+
     doc.status = ParseStatus.processing
     db.flush()
+
+    emit({"stage": "read", "filename": doc.source_filename, "format": doc.file_format.value
+          if hasattr(doc.file_format, "value") else str(doc.file_format)})
 
     extractor = get_extractor(Path(doc.stored_path))
     if extractor is None:
         doc.status = ParseStatus.error
         doc.parse_log = "no extractor for file format"
+        emit({"stage": "error", "message": "no extractor for file format"})
         return {"status": "error", "items": 0}
 
+    emit({"stage": "extract"})
     try:
-        result = extractor.extract(Path(doc.stored_path))
+        result = extractor.extract(Path(doc.stored_path), progress=progress)
     except Exception as exc:  # noqa: BLE001
         doc.status = ParseStatus.error
         doc.parse_log = f"extraction crashed: {type(exc).__name__}: {exc}"
+        emit({"stage": "error", "message": f"{type(exc).__name__}: {exc}"})
         return {"status": "error", "items": 0}
 
     doc.method_summary = dict(result.method_stats)
     doc.warnings = result.warnings[:200]
     doc.raw_content = "\n".join(r.raw_name for r in result.rows)[:_RAW_CONTENT_LIMIT]
+
+    total_rows = len(result.rows)
+    emit({"stage": "extract_done", "methods": dict(result.method_stats), "rows": total_rows})
 
     matcher = load_matcher(db)
     eff_date: date | None = doc.effective_date.date() if doc.effective_date else None
@@ -121,13 +148,18 @@ def process_document(db, doc: PriceDocument) -> dict:
         supersede_previous(db, item)
         n_items += 1
 
+        if progress is not None and (n_items % _ITEMS_EVERY == 0 or n_items == total_rows):
+            emit({"stage": "items", "done": n_items, "total": total_rows,
+                  "auto": n_auto, "review": n_review, "unmatched": n_unmatched})
+
     # document status
+    emit({"stage": "validate"})
     needs_review = (n_review + n_unmatched + n_flagged) > 0
     doc.status = ParseStatus.needs_review if needs_review else ParseStatus.done
     doc.parsed_at = datetime.utcnow()
     db.flush()
 
-    return {
+    summary = {
         "status": doc.status.value,
         "items": n_items,
         "auto": n_auto,
@@ -135,6 +167,41 @@ def process_document(db, doc: PriceDocument) -> dict:
         "unmatched": n_unmatched,
         "flagged": n_flagged,
     }
+    emit({"stage": "done", "doc_id": str(doc.id), "summary": summary,
+          "methods": dict(result.method_stats), "preview": _preview_items(db, doc.id, 8)})
+    return summary
+
+
+def _preview_items(db, doc_id, limit: int = 8) -> list[dict]:
+    """First N items of a document with their match status + canonical + price,
+    for the demo result card."""
+    from sqlalchemy import select
+
+    rows = db.execute(
+        select(PriceItem, Service)
+        .outerjoin(Service, Service.id == PriceItem.service_id)
+        .where(PriceItem.document_id == doc_id)
+        .order_by(PriceItem.id)
+        .limit(limit)
+    ).all()
+    out: list[dict] = []
+    for item, svc in rows:
+        amount = None
+        for t in item.tiers:
+            if t.tier_type == TierType.resident_kzt:
+                amount = str(t.amount_kzt)
+                break
+        if amount is None and item.tiers:
+            amount = str(item.tiers[0].amount_kzt)
+        status = item.match_status.value if hasattr(item.match_status, "value") else str(item.match_status)
+        out.append({
+            "raw_name": item.raw_name,
+            "match_status": status,
+            "match_score": float(item.match_score) if item.match_score is not None else None,
+            "canonical_name": svc.canonical_name if svc else None,
+            "amount_kzt": amount,
+        })
+    return out
 
 
 def _map_tier(label, single: bool) -> TierType:

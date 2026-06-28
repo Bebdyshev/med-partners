@@ -11,7 +11,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 import type {
-  AiCompare, Dashboard, DashboardDocs, DashboardPartners, DocPreview, DocumentRow, Partner, PartnerPrice, SearchResult, Service, ServiceDescription, ServicePrice, Unmatched,
+  AiCompare, Dashboard, DashboardDocs, DashboardPartners, DocPreview, DocumentRow, Partner, PartnerPrice, ProgressEvent, SearchResult, Service, ServiceDescription, ServicePrice, Unmatched,
 } from "./types";
 
 export const api = {
@@ -62,13 +62,58 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  upload: (file: File, asynchronous = false) => {
+  upload: (file: File, asynchronous = false, process = true, dedupe = true) => {
     const fd = new FormData();
     fd.append("file", file);
     return j<{ created: string[]; skipped_duplicates: number; queued: boolean }>(
-      `/upload?asynchronous=${asynchronous}`,
+      `/upload?asynchronous=${asynchronous}&process=${process}&dedupe=${dedupe}`,
       { method: "POST", body: fd }
     );
+  },
+
+  // fetch the bundled demo scan as a File (so it flows through the normal upload path)
+  demoFile: async (): Promise<File> => {
+    const res = await fetch(`${BASE}/demo-file`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`demo file unavailable (${res.status})`);
+    const blob = await res.blob();
+    return new File([blob], "Демо · скан-прайс.pdf", { type: "application/pdf" });
+  },
+
+  pageImageUrl: (docId: string, pageno: number) => `${BASE}/documents/${docId}/page/${pageno}`,
+
+  // Stream live processing events via fetch + ReadableStream (proxies cleanly through
+  // the Next rewrite; one-shot, so no EventSource auto-reconnect).
+  streamProcess: async (
+    docId: string,
+    onEvent: (ev: ProgressEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const res = await fetch(`${BASE}/documents/${docId}/process-stream`, {
+      cache: "no-store",
+      headers: { Accept: "text/event-stream" },
+      signal,
+    });
+    if (!res.ok || !res.body) throw new Error(`stream failed (${res.status})`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      // events are separated by a blank line
+      while ((nl = buf.indexOf("\n\n")) !== -1) {
+        const chunk = buf.slice(0, nl);
+        buf = buf.slice(nl + 2);
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload) continue;
+          try { onEvent(JSON.parse(payload) as ProgressEvent); } catch { /* ignore partial */ }
+        }
+      }
+    }
   },
 };
 

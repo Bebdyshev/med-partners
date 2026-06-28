@@ -50,27 +50,62 @@ class PdfExtractor(BaseExtractor):
     #: cap OCR pages per document so a huge scan cannot blow the time budget
     ocr_page_budget = 60
 
-    def extract(self, path: Path) -> ExtractResult:
+    def extract(self, path: Path, progress=None) -> ExtractResult:
         result = ExtractResult()
         self._ocr_used = 0
         import pdfplumber
 
+        def emit(ev: dict) -> None:
+            if progress is not None:
+                try:
+                    progress(ev)
+                except Exception:  # noqa: BLE001
+                    pass
+
         with pdfplumber.open(path) as pdf:
             pages = pdf.pages
-            result.meta["page_count"] = len(pages)
-            # Vision-extract scan pages CONCURRENTLY (each call is independent), bounded
-            # by the OCR budget; the rest go through the normal per-page path.
-            vision_rows: dict[int, list] = {}
-            if vision_extract.available():
-                scan_pagenos = [pn for pn, pg in enumerate(pages, start=1) if _page_is_scan(pg)]
-                vision_rows = self._vision_pages_concurrent(path, scan_pagenos[: self.ocr_page_budget])
-            for pageno, page in enumerate(pages, start=1):
-                rows = vision_rows.get(pageno)
-                if rows:
-                    for r in rows:
-                        result.add_row(r)
-                    continue
-                self._extract_page(page, pageno, result, path, skip_vision=True)
+            page_total = len(pages)
+            result.meta["page_count"] = page_total
+            emit({"stage": "extract", "page_total": page_total})
+
+            scan_pagenos = (
+                [pn for pn, pg in enumerate(pages, start=1) if _page_is_scan(pg)]
+                if vision_extract.available()
+                else []
+            )
+
+            if progress is not None:
+                # DEMO path: vision-scan pages SEQUENTIALLY with per-page events so the
+                # UI can show each page being scanned in order.
+                vision_rows: dict[int, list] = {}
+                for pn in scan_pagenos[: self.ocr_page_budget]:
+                    emit({"stage": "ocr", "page": pn, "page_total": page_total})
+                    try:
+                        rows = vision_extract.extract_page_rows(path, pn - 1)
+                    except Exception:  # noqa: BLE001 — a bad page must not crash the doc
+                        rows = []
+                    vision_rows[pn] = rows
+                    emit({"stage": "ocr_done", "page": pn, "rows": len(rows)})
+                for pageno, page in enumerate(pages, start=1):
+                    rows = vision_rows.get(pageno)
+                    if rows:
+                        for r in rows:
+                            result.add_row(r)
+                        continue
+                    self._extract_page(page, pageno, result, path, skip_vision=True,
+                                       progress=progress, page_total=page_total)
+            else:
+                # PRODUCTION path (unchanged): vision-extract scan pages CONCURRENTLY.
+                vision_rows = {}
+                if scan_pagenos:
+                    vision_rows = self._vision_pages_concurrent(path, scan_pagenos[: self.ocr_page_budget])
+                for pageno, page in enumerate(pages, start=1):
+                    rows = vision_rows.get(pageno)
+                    if rows:
+                        for r in rows:
+                            result.add_row(r)
+                        continue
+                    self._extract_page(page, pageno, result, path, skip_vision=True)
         if not result.rows:
             result.warnings.append("pdf: no rows extracted (text + OCR both empty)")
         return result
@@ -93,7 +128,15 @@ class PdfExtractor(BaseExtractor):
                 out[pn] = rows
         return out
 
-    def _extract_page(self, page, pageno: int, result: ExtractResult, pdf_path: Path, skip_vision: bool = False) -> None:
+    def _extract_page(self, page, pageno: int, result: ExtractResult, pdf_path: Path,
+                      skip_vision: bool = False, progress=None, page_total: int = 0) -> None:
+        def emit(ev: dict) -> None:
+            if progress is not None:
+                try:
+                    progress(ev)
+                except Exception:  # noqa: BLE001
+                    pass
+
         text = page.extract_text() or ""
         chars, cyr_ratio = _text_quality(text)
         good_text = chars >= settings.pdf_text_min_chars_per_page and cyr_ratio >= 0.3
@@ -131,15 +174,18 @@ class PdfExtractor(BaseExtractor):
         has_image = bool(getattr(page, "images", None))
         if has_image and self._ocr_used < self.ocr_page_budget:
             self._ocr_used += 1
+            n_before = len(result.rows)
+            emit({"stage": "ocr", "page": pageno, "page_total": page_total})
             # Prefer the vision model: it returns STRUCTURED rows (name / code /
             # biomaterial / prices kept apart) instead of merged Tesseract text.
             if vision_extract.available():
-                n_before = len(result.rows)
                 self._from_vision(pageno, result, pdf_path)
                 if len(result.rows) > n_before:
+                    emit({"stage": "ocr_done", "page": pageno, "rows": len(result.rows) - n_before})
                     return
                 # vision yielded nothing (call failed / empty) -> Tesseract fallback
             self._from_ocr(pageno, result, pdf_path)
+            emit({"stage": "ocr_done", "page": pageno, "rows": len(result.rows) - n_before})
 
     # --- vision-LLM path (structured OCR) ---
     def _from_vision(self, pageno: int, result: ExtractResult, pdf_path: Path) -> None:

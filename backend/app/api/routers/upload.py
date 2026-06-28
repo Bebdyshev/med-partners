@@ -19,6 +19,7 @@ async def upload(
     file: UploadFile = File(..., description="A ZIP archive or a single price-list file"),
     process: bool = Query(True, description="enqueue processing immediately"),
     asynchronous: bool = Query(True, description="use Celery (true) or process inline (false)"),
+    dedupe: bool = Query(True, description="skip files whose hash is already in the DB"),
     db: Session = Depends(get_db),
 ):
     # save the uploaded payload to a temp file
@@ -33,7 +34,7 @@ async def upload(
     created: list[str] = []
     skipped = 0
     for f in _iter_files(tmp):
-        doc = register_file(db, f)
+        doc = register_file(db, f, allow_duplicate=not dedupe)
         if doc is None:
             skipped += 1
             continue

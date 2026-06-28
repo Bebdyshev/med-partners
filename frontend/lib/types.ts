@@ -50,6 +50,26 @@ export type DocPreview = {
   error?: string;
 };
 
+export type DocumentItem = {
+  raw_name: string;
+  match_status: string;
+  match_score: number | null;
+  canonical_name: string | null;
+  amount_kzt: string | null;
+};
+
+// Live progress events streamed from /documents/{id}/process-stream
+export type ProgressEvent =
+  | { stage: "read"; filename?: string; format?: string }
+  | { stage: "extract"; page_total?: number }
+  | { stage: "ocr"; page: number; page_total: number }
+  | { stage: "ocr_done"; page: number; rows: number }
+  | { stage: "extract_done"; methods: Record<string, number>; rows: number }
+  | { stage: "items"; done: number; total: number; auto: number; review: number; unmatched: number }
+  | { stage: "validate" }
+  | { stage: "done"; doc_id: string; summary: Record<string, number | string>; methods: Record<string, number>; preview: DocumentItem[] }
+  | { stage: "error"; message: string };
+
 export type ServiceDescription = {
   slug?: string;
   canonical_name: string;
@@ -59,7 +79,8 @@ export type ServiceDescription = {
   why?: string;
   prep?: string;
   duration_min?: number;
-  category?: string;
+  category?: string | null;
+  icd_code?: string | null;
   found: boolean;
 };
 

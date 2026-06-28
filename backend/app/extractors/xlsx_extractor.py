@@ -31,7 +31,7 @@ def _read_sheet(ws) -> list[list]:
 class XlsxExtractor(BaseExtractor):
     supported_extensions = {"xlsx", "xlsm"}
 
-    def extract(self, path: Path) -> ExtractResult:
+    def extract(self, path: Path, progress=None) -> ExtractResult:
         result = ExtractResult()
         wb = openpyxl.load_workbook(path, data_only=True)
         result.meta["sheets"] = wb.sheetnames

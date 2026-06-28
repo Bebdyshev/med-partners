@@ -25,7 +25,22 @@ export default function DocumentsPage() {
   const { data, error, loading, reload } = useFetch(() => api.documents(), []);
   const [over, setOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [demo, setDemo] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  async function runDemo() {
+    setDemoBusy(true);
+    try {
+      const f = await api.demoFile();
+      setDemo(true);
+      setFile(f);
+    } catch (e) {
+      alert("Демо-файл недоступен: " + (e as Error).message);
+    } finally {
+      setDemoBusy(false);
+    }
+  }
 
   return (
     <>
@@ -38,8 +53,9 @@ export default function DocumentsPage() {
       {file ? (
         <ParseProgress
           file={file}
+          demo={demo}
           onComplete={reload}
-          onClose={() => setFile(null)}
+          onClose={() => { setFile(null); setDemo(false); }}
         />
       ) : (
         <div
@@ -60,6 +76,9 @@ export default function DocumentsPage() {
             <div className="cta-row">
               <button className="btn primary" onClick={() => inputRef.current?.click()}>
                 <Glyph.docs size={15} /> Выбрать файл
+              </button>
+              <button className="btn" onClick={runDemo} disabled={demoBusy}>
+                <Glyph.scan size={15} /> {demoBusy ? "Загрузка…" : "Демо: скан-прайс"}
               </button>
               <span className="hint">форматы <span className="kbd">PDF</span> <span className="kbd">DOCX</span> <span className="kbd">XLSX</span> <span className="kbd">ZIP</span></span>
             </div>

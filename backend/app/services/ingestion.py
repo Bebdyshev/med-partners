@@ -60,11 +60,14 @@ def _iter_files(path: Path):
         yield path
 
 
-def register_file(db, src: Path) -> PriceDocument | None:
-    """Save raw file + create PriceDocument. Returns None if duplicate hash."""
+def register_file(db, src: Path, allow_duplicate: bool = False) -> PriceDocument | None:
+    """Save raw file + create PriceDocument. Returns None if duplicate hash
+    (unless `allow_duplicate`, used by the demo so it can always re-run a fresh doc)."""
     settings.ensure_dirs()
     file_hash = _sha256(src)
-    if db.execute(select(PriceDocument).where(PriceDocument.file_hash == file_hash)).first():
+    if not allow_duplicate and db.execute(
+        select(PriceDocument).where(PriceDocument.file_hash == file_hash)
+    ).first():
         return None
 
     code, year = parse_filename(src.name)

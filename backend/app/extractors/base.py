@@ -58,7 +58,11 @@ class BaseExtractor(abc.ABC):
         return path.suffix.lower().lstrip(".") in self.supported_extensions
 
     @abc.abstractmethod
-    def extract(self, path: Path) -> ExtractResult:
+    def extract(self, path: Path, progress=None) -> ExtractResult:
         """Parse the file into structured rows. Must not raise on partial data —
-        collect problems into ExtractResult.warnings instead."""
+        collect problems into ExtractResult.warnings instead.
+
+        `progress` is an optional callable(dict) for live status (used by the
+        streaming demo endpoint). Most extractors ignore it; only PdfExtractor
+        emits per-page OCR events through it."""
         raise NotImplementedError

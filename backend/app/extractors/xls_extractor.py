@@ -13,7 +13,7 @@ from app.extractors.common.table_to_rows import table_to_rows
 class XlsExtractor(BaseExtractor):
     supported_extensions = {"xls"}
 
-    def extract(self, path: Path) -> ExtractResult:
+    def extract(self, path: Path, progress=None) -> ExtractResult:
         result = ExtractResult()
         try:
             import xlrd

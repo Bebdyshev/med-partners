@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import json
 import mimetypes
+import queue
+import threading
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.config import settings
+from app.db.session import session_scope
 from app.models import PriceDocument
 from app.schemas.dto import DocumentOut
 from app.services.report import compute_document_breakdown, compute_partner_breakdown, compute_report
@@ -81,6 +85,85 @@ def get_document_file(doc_id: uuid.UUID, db: Session = Depends(get_db)):
         media_type=media,
         filename=doc.source_filename,
         content_disposition_type="inline",
+    )
+
+
+@router.get("/demo-file")
+def demo_file():
+    """Serve a small scanned price-list for the live demo (smallest PDF in data/)."""
+    data_dir = Path(__file__).resolve().parents[4] / "data"
+    pdfs = [p for p in data_dir.iterdir() if p.suffix.lower() == ".pdf"] if data_dir.is_dir() else []
+    if not pdfs:
+        raise HTTPException(404, "no demo file available")
+    preferred = data_dir / "Клиника 5 прайс 2025.pdf"
+    target = preferred if preferred.is_file() else min(pdfs, key=lambda p: p.stat().st_size)
+    return FileResponse(
+        target, media_type="application/pdf",
+        filename="demo-scan.pdf", content_disposition_type="inline",
+    )
+
+
+@router.get("/documents/{doc_id}/page/{pageno}")
+def document_page(doc_id: uuid.UUID, pageno: int, db: Session = Depends(get_db)):
+    """Render one PDF page to PNG (~150 DPI), cached, for the scanner visual."""
+    doc = db.get(PriceDocument, doc_id)
+    if doc is None:
+        raise HTTPException(404, "document not found")
+    path = _resolve_stored(doc.stored_path)
+    if path is None:
+        raise HTTPException(404, "stored file missing")
+    fmt = doc.file_format.value if hasattr(doc.file_format, "value") else str(doc.file_format)
+    if "pdf" not in fmt and path.suffix.lower() != ".pdf":
+        raise HTTPException(400, "page preview is only available for PDF")
+    cache = settings.derived_dir / f"page_{doc_id}_{pageno}.png"
+    if not cache.exists():
+        from app.extractors.vision_extract import _render_png
+        try:
+            png = _render_png(path, pageno - 1, dpi=150)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(404, f"cannot render page {pageno}: {exc}")
+        settings.derived_dir.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(png)
+    return FileResponse(cache, media_type="image/png")
+
+
+@router.get("/documents/{doc_id}/process-stream")
+def process_stream(doc_id: uuid.UUID):
+    """Run the pipeline in a worker thread and stream live progress events (SSE-style).
+
+    Pair with POST /upload?process=false: upload the file, then open this stream to
+    watch extraction → OCR (per page) → normalization tallies → done in real time."""
+    q: queue.Queue = queue.Queue()
+    sentinel = object()
+
+    def run() -> None:
+        try:
+            with session_scope() as tdb:
+                doc = tdb.get(PriceDocument, doc_id)
+                if doc is None:
+                    q.put({"stage": "error", "message": "document not found"})
+                    return
+                from app.services.processing import process_document
+                process_document(tdb, doc, progress=lambda e: q.put(e))
+        except Exception as exc:  # noqa: BLE001 — surface to the client, never crash silently
+            q.put({"stage": "error", "message": f"{type(exc).__name__}: {exc}"})
+        finally:
+            q.put(sentinel)
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def gen():
+        yield ": keep-alive\n\n"
+        while True:
+            ev = q.get()
+            if ev is sentinel:
+                break
+            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
 
 
