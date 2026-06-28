@@ -1,129 +1,219 @@
-# MedArchive — Clinic Price-List Processing
+# MedArchive — обработка прайс-листов клиник
 
-Automatic processing of an archive of clinic price lists (PDF / scanned PDF /
-DOCX / XLSX / XLS) into a **normalized, versioned database** of partners,
-services and prices, with a **REST/OpenAPI** search layer.
+Автоматическая обработка архива прайс-листов клиник-партнёров (PDF / скан-PDF / DOCX /
+XLSX / XLS) в **нормализованную, версионированную базу** партнёров, услуг и цен, с
+**REST/OpenAPI**, гибридным поиском и интерфейсом оператора.
 
-Built for Case 2 "MedArchive". See `ТЗ_Кейс2_MedArchive (1).docx` for the spec.
+Решение кейса 2 «MedArchive» (ТЗ — `ТЗ_Кейс2_MedArchive (1).docx`).
 
-## What it does
+---
 
-```
-ZIP/file → store raw → detect format → extract (text-first, OCR fallback)
-        → map price tiers (resident / near-abroad / far-abroad / no-VAT)
-        → normalize service name to the dictionary (RapidFuzz + embeddings)
-        → validate (price>0, nonres≥res, dedup, >50% anomaly, currency→KZT)
-        → version (archive-on-change) → searchable via REST API
-```
+## 📑 Навигация для проверяющих
 
-Highlights, grounded in the real sample data:
-- **Adaptive PDF pipeline** — tries the embedded text layer first; falls back to
-  Tesseract OCR (rus+kaz+eng) only on genuine scan pages, with a per-document OCR
-  budget. Header-less price lists are handled by a line-item parser.
-- **Buried-header detection** — Excel headers sit under 8–17 rows of letterhead;
-  detected by keyword scoring, with multi-row merged headers and inline category
-  rows ("1. СТАЦИОНАР") handled.
-- **Flexible price tiers** — real files have up to 4 price columns; modeled as
-  N `PriceTier` rows per item, not a fixed resident/non-resident pair.
-- **Pluggable extractors** — one `BaseExtractor` interface + registry; add a
-  format with one new file, the core never changes.
-- **Versioning** — a new document supersedes prior items (archive-on-change);
-  history is kept indefinitely.
+| Документ | Что внутри |
+|---|---|
+| **README.md** (этот файл) | быстрый старт, алгоритм, стек, соответствие критериям ТЗ |
+| [`РЕШЕНИЕ_по_ТЗ.md`](РЕШЕНИЕ_по_ТЗ.md) | детальный разбор **по каждому критерию оценки ТЗ** |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | внутреннее устройство модулей, акцент на валидацию/версионирование |
+| [`REPORT.md`](REPORT.md) | отчёт о качестве обработки реального архива (метрики) |
+| [`EVAL.md`](EVAL.md) | замеры точности нормализации по порогам |
+| [`DEMO.md`](DEMO.md) | пошаговый демо-сценарий (запросы) |
 
-## Quick start (Docker)
+---
 
+## 🚀 Быстрый старт
+
+### Docker (рекомендуется)
 ```bash
 cd backend
 cp .env.example .env
-docker compose up --build        # api + worker + postgres + redis, runs migrations
-# API docs:  http://localhost:8000/docs
+docker compose up --build      # api + worker + postgres + redis + миграции
+# Swagger:  http://localhost:8000/docs
 ```
 
-Ingest the provided archive and build the dictionary:
-
-```bash
-# copy the sample data into the container's storage, or upload via the API:
-curl -F "file=@/path/to/archive.zip" "http://localhost:8000/upload?asynchronous=true"
-
-# load the organizer dictionary (or seed-dictionary to bootstrap from data), then re-normalize:
-docker compose exec api python -m app.cli load-dictionary "Справочник услуг.xlsx"
-docker compose exec api python -m app.cli renormalize
-docker compose exec api python -m app.cli report
-```
-
-## Quick start (local, no Docker)
-
-Requires Python 3.11, Postgres, Redis, and Tesseract (`brew install tesseract
-tesseract-lang`).
-
+### Локально без Docker
+Нужны Python 3.11, PostgreSQL, Redis, Tesseract (`brew install tesseract tesseract-lang`).
 ```bash
 cd backend
 python3.11 -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev,embeddings]"     # omit 'embeddings' to skip torch (RapidFuzz only)
+pip install -e ".[dev,embeddings]"      # без 'embeddings' — только RapidFuzz, без torch
 export DATABASE_URL=postgresql+psycopg2://medarchive:medarchive@localhost:5432/medarchive
 alembic upgrade head
 
-# end-to-end over the sample data directory (synchronous, no Celery):
+# полный прогон по архиву из ./data (синхронно, без Celery):
 python -m app.cli ingest ../data
-python -m app.cli load-dictionary "../Справочник услуг.xlsx"   # or: seed-dictionary
+python -m app.cli load-dictionary "../Справочник услуг.xlsx"   # или: seed-dictionary
 python -m app.cli renormalize
 python -m app.cli report
 
-uvicorn app.main:app --reload          # http://localhost:8000/docs
+uvicorn app.main:app --reload           # http://localhost:8000/docs
 ```
 
-## CLI
+### Фронтенд
+```bash
+cd frontend && npm install && npm run dev   # http://localhost:3000
+```
 
-| command | purpose |
-|---|---|
-| `python -m app.cli extract <file-or-dir>` | dry-run extraction, prints a summary (no DB) |
-| `python -m app.cli ingest <dir-or-zip>` | register + process documents into the DB |
-| `python -m app.cli load-dictionary <xlsx-or-json>` | load an organizer-provided target dictionary |
-| `python -m app.cli seed-dictionary` | bootstrap the Service dictionary from extracted items (fallback) |
-| `python -m app.cli renormalize` | re-match all items against the current dictionary |
-| `python -m app.cli report` | quality report (docs, % auto-normalized, queue sizes) |
+---
 
-## API (OpenAPI at `/docs`)
+## ⚙️ Что делает система (алгоритм)
 
-| method | endpoint | description |
+```
+ZIP/файл → дедуп(SHA-256) → автоопределение формата
+   → извлечение (плагин по формату: текст/таблицы/vision-OCR/tracked changes)
+   → разбор позиций + тарифы (резидент/нерезидент/…) + конвертация в ₸
+   → нормализация к справочнику (код → эмбеддинг → LLM-судья → fuzzy fallback)
+   → валидация (7 правил качества, аномалии относительно истории)
+   → версионирование archive-on-change (актуальная версия + бессрочная история)
+   → витрины: поиск (FTS+семантика+триграммы), дашборд, страницы услуг/клиник, ревью
+```
+
+Особенности: плагинные экстракторы (новый формат = 1 файл, ядро не меняется),
+постраничное решение «текст vs скан», гибкие тарифы (N цен на позицию), живой
+стрим парсинга в UI, переключаемые AI-провайдеры (OpenAI ↔ локальный Ollama/e5),
+circuit breaker с авто-деградацией на локальный fuzzy.
+
+---
+
+## ✅ Соответствие критериям оценки (раздел 8 ТЗ)
+
+| Критерий | Вес | Как закрыто |
 |---|---|---|
-| GET | `/services` | dictionary services, filter by category / substring |
-| GET | `/services/{id}/partners` | who offers a service + prices (cheapest first) |
-| GET | `/partners` | partners, filter by city / status |
-| GET | `/partners/{id}/services` | a partner's full price list |
-| GET | `/search?q=` | FTS over services + partners (trigram typo fallback) |
-| GET | `/unmatched` | review queue with ranked dictionary suggestions |
-| POST | `/match` | operator confirms / creates a match (learns a synonym) |
-| POST | `/upload` | upload a ZIP or single file, optionally enqueue processing |
-| GET | `/documents`, `/documents/{id}` | processing status + parse warnings |
-| GET | `/dashboard/stats` | aggregate metrics |
+| **Качество извлечения данных** | 30% | плагины по форматам: текстовый PDF (pdfplumber + реконструкция таблиц по координатам слов), скан-PDF (**vision-OCR со структурой** / Tesseract `rus+kaz+eng`), **DOCX с tracked changes**, XLSX/XLS (все листы, авто-поиск строки заголовков под «шапкой-бланком») |
+| **Нормализация и сопоставление** | 25% | матчер: **код → семантика (эмбеддинг + LLM-судья) → fuzzy**; конфигурируемые пороги; очередь `unmatched` + ручная разметка с созданием новой услуги |
+| **Валидация и верификация** ⭐ | 20% | **7 правил** (все из таблицы ТЗ 4.4), аномалии цены относительно истории, **версионирование archive-on-change**, консоль ревью с фрагментом источника |
+| **API и поиск** | 15% | все эндпоинты ТЗ 4.5 + **OpenAPI/Swagger**, гибридный поиск (FTS + семантика + триграммы) |
+| **UX административного раздела** | 10% | загрузка с **живым стримом парсинга**, дашборд, очередь верификации one-at-a-time |
 
-## Configuration
+Подробный разбор по каждому критерию — в [`РЕШЕНИЕ_по_ТЗ.md`](РЕШЕНИЕ_по_ТЗ.md).
 
-All via env / `.env` (see `.env.example`): DB/Redis URLs, storage dir, match
-thresholds (`MATCH_AUTO_THRESHOLD`, `MATCH_REVIEW_FLOOR`), `USE_EMBEDDINGS`,
-OCR language/DPI, and the price-anomaly percent.
+---
 
-## Data model
+## 🧰 Стек (раздел 6 ТЗ)
 
-`Partner` · `PriceDocument` · `PriceItem` (+ `PriceTier`) · `Service`
-(+ `ServiceSynonym`) · `MatchDecision`. See `app/models/`.
+| Задача (ТЗ) | Наш выбор |
+|---|---|
+| PDF (текст) | pdfplumber + PyMuPDF (fitz) |
+| OCR (сканы) | vision-LLM (gpt-4o / Qwen2.5-VL) со структурой + Tesseract (fallback) |
+| DOCX | python-docx + парс tracked changes |
+| XLSX / XLS | openpyxl + xlrd + pandas |
+| Нормализация | RapidFuzz + OpenAI `text-embedding-3-large` / локально `multilingual-e5-large` + LLM-судья |
+| Бэкенд | FastAPI + Pydantic v2 |
+| База данных | PostgreSQL + SQLAlchemy 2.0 + Alembic |
+| Полнотекстовый поиск | PostgreSQL FTS + `pg_trgm` |
+| Фронтенд | Next.js 14 + React 18 + TypeScript |
+| Очереди | Celery + Redis (+ опц. AWS Step Functions) |
 
-## Tests
+---
+
+## ⭐ Валидация и верификация (критерий 20%)
+
+**7 автоматических правил** (`app/validation/rules.py`, чистые, юнит-тестируемые) — все
+из таблицы ТЗ 4.4:
+
+| Правило | Уровень | Пункт ТЗ 4.4 |
+|---|---|---|
+| `price_not_positive` | error | цена > 0 и число |
+| `nonresident_lt_resident` | warning | цена нерезидента ≥ цены резидента |
+| `empty_name` | error | название не пустое |
+| `future_date` | warning | дата прайса не в будущем |
+| `duplicate` | warning | дубликат (клиника+услуга+дата) |
+| `price_anomaly` | warning | изменение цены > 50% относительно прошлой версии |
+| `low_confidence` | warning | низкая уверенность извлечения (OCR) |
+
+Валюта≠KZT → конвертация в ₸ с сохранением оригинала; документ без данных → статус `error`.
+
+**Версионирование (archive-on-change)** — `app/services/versioning.py`:
+ничего не удаляется; при новой цене старая версия помечается `is_active=False` и
+связывается `superseded_by_id`. Архивируется **только строго не более новая** версия
+(защита от регресса). Это даёт актуальную версию для витрин, бессрочную историю цен
+(график «динамика цены») и точку отсчёта для детектора аномалий.
+
+> Деталь: валидация и версионирование работают в паре — на каждой позиции сначала
+> берётся `prev_resident_price` (прошлая активная версия), выполняется валидация
+> относительно неё, затем `supersede_previous` делает новую версию активной.
+
+---
+
+## 🌐 API (OpenAPI на `/docs`)
+
+| Метод | Endpoint | Описание |
+|---|---|---|
+| GET | `/services` | услуги справочника, фильтр по категории/подстроке |
+| GET | `/services/{id}/partners` | кто оказывает услугу + цены (дешевле сверху) |
+| GET | `/partners` | партнёры, фильтр по городу/статусу |
+| GET | `/partners/{id}/services` | полный прайс партнёра |
+| GET | `/search?q=` | гибридный поиск (FTS + семантика + триграммы) |
+| GET | `/unmatched` | очередь ревью с ранжированными кандидатами |
+| POST | `/match` | ручное сопоставление / создание услуги |
+| POST | `/upload` | загрузка ZIP/файла, постановка в обработку |
+| GET | `/documents`, `/documents/{id}` | статус обработки + предупреждения |
+| GET | `/documents/{id}/process-stream` | живой стрим парсинга (SSE) |
+| GET | `/dashboard/stats`, `/dashboard/documents`, `/dashboard/partners` | аналитика |
+
+---
+
+## 🗃️ Модель данных
+
+`Partner` → `PriceDocument` → `PriceItem` (+ `PriceTier`) · `Service`
+(+ `ServiceSynonym`) · `MatchDecision`. Подробно — `app/models/` и
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+---
+
+## 📊 Метрики качества (на предоставленном архиве)
+
+Полный отчёт — [`REPORT.md`](REPORT.md). Кратко (10 документов, справочник ~1230 услуг):
+
+- Извлечено позиций: **14 554** (активных после версионирования **12 103**, архив 2 451).
+- Нормализация: **auto 37.5%** (score ≥ 0.85), review, unmatched.
+- **~92% позиций имеют ранжированного кандидата** — работа оператора это
+  *подтвердить/исправить*, а не *искать*.
+- Подход **precision-first**: при понижении порога до цели ТЗ «≥70% авто» в авто
+  попадают неверные совпадения, поэтому осознанно держим высокую точность авто и
+  большую покрытую очередь ревью. Рост авто-rate требует медицинской embedding-модели
+  и богатого словаря синонимов, а не «подкрутки порога» (детали в REPORT/EVAL).
+- Код-совпадения (~27% строк) матчатся по коду с ~100% точностью **до** имени.
+
+---
+
+## 🖥️ CLI
+
+| Команда | Назначение |
+|---|---|
+| `python -m app.cli extract <файл/папка>` | dry-run извлечения (без БД) |
+| `python -m app.cli ingest <папка/zip>` | регистрация + обработка в БД |
+| `python -m app.cli load-dictionary <xlsx/json>` | загрузка целевого справочника |
+| `python -m app.cli seed-dictionary` | bootstrap справочника из извлечённых имён (fallback) |
+| `python -m app.cli renormalize` | пересопоставить все позиции |
+| `python -m app.cli report` | отчёт о качестве |
+
+---
+
+## 🔧 Конфигурация
+
+Всё через `.env` (см. `.env.example`): URL БД/Redis, каталог хранения, пороги
+сопоставления (`MATCH_AUTO_THRESHOLD`, `MATCH_REVIEW_FLOOR`), `USE_EMBEDDINGS`,
+AI-провайдер (`LLM_PROVIDER=openai|ollama`, `EMBEDDING_PROVIDER`), язык/DPI OCR,
+процент аномалии цены (`PRICE_CHANGE_ANOMALY_PCT`), опц. `AWS_SFN_ARN`.
+
+---
+
+## 🧪 Тесты
 
 ```bash
-pytest tests/ -q     # pure-logic unit tests (parsing, columns, validation)
+cd backend && pytest tests/ -q     # юнит-тесты парсинга, колонок, валидации
 ```
 
-## Notes / assumptions
+---
 
-- The organizer dictionary `Справочник услуг.xlsx` (~1230 services) is loaded via
-  `load-dictionary` (XLSX/JSON supported). If no dictionary is supplied,
-  `seed-dictionary` bootstraps one from the extracted item names instead.
-- Normalization is **precision-first**: ~37% auto-match at score ≥ 0.85, ~55% routed
-  to the review queue with ranked suggestions, ~7% unmatched. See `REPORT.md` for why
-  this beats lowering the threshold to hit the 70% goal with wrong matches.
-- The 6 sample PDFs are **scans** (JBIG2/JPEG2000) with a variable-quality
-  embedded text layer; the pipeline uses text where good and OCR where not.
-- Currency→KZT uses a small static rate table (`app/currency.py`); swap for a
-  dated National-Bank lookup in production.
+## 📝 Примечания / допущения
+
+- Справочник `Справочник услуг.xlsx` (~1230 услуг) грузится через `load-dictionary`
+  (XLSX/JSON). Без справочника — `seed-dictionary` строит его из извлечённых имён.
+- 6 из PDF в архиве — **сканы** с переменным текстовым слоём; пайплайн берёт текст там,
+  где он хорош, и OCR — где нет.
+- Конвертация валют — статическая таблица курсов (`app/currency.py`); в проде заменяется
+  на датированный курс Нацбанка.
+- Нет кредитов OpenAI? Система автоматически деградирует на локальный RapidFuzz; для
+  on-premise — `LLM_PROVIDER=ollama` + `EMBEDDING_PROVIDER=sentence_transformers`.
